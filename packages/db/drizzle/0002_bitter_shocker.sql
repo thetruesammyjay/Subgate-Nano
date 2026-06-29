@@ -1,0 +1,1 @@
+ALTER TABLE "payments" RENAME COLUMN "transaction_hash" TO "gateway_transaction_id";
