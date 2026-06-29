@@ -1,0 +1,26 @@
+{
+  "compilerOptions": {
+    "baseUrl": ".",
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "lib": ["ES2022"],
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "paths": {
+      "@subgate/types": ["packages/types/src/index.ts"],
+      "@subgate/db": ["packages/db/src/index.ts"],
+      "@subgate/pricing": ["packages/pricing/src/index.ts"],
+      "@subgate/access": ["packages/access/src/index.ts"],
+      "@subgate/x402": ["packages/x402/src/index.ts"]
+    },
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true
+  }
+}
