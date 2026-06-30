@@ -3,6 +3,9 @@
   "compilerOptions": {
     "allowJs": true,
     "jsx": "preserve",
+    "lib": ["DOM", "DOM.Iterable", "ES2022"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
     "noEmit": true,
     "incremental": true,
     "plugins": [

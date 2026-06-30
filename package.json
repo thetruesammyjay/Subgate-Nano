@@ -9,7 +9,10 @@
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
     "db:generate": "pnpm --filter @subgate/db generate",
-    "db:migrate": "pnpm --filter @subgate/db migrate"
+    "db:migrate": "pnpm --filter @subgate/db migrate",
+    "db:seed": "pnpm --filter @subgate/db seed",
+    "smoke:api": "pnpm --filter @subgate/api smoke",
+    "smoke:sidecar": "pnpm --filter @subgate/sidecar smoke"
   },
   "devDependencies": {
     "turbo": "^2.0.12",

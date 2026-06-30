@@ -4,10 +4,10 @@ import { Menu, X, Zap } from "lucide-react";
 import { useState } from "react";
 
 const navItems = [
-  { href: "#flow", label: "Flow" },
-  { href: "#dashboard", label: "Dashboard" },
-  { href: "#agents", label: "Agents" },
-  { href: "#footer", label: "Links" },
+  { href: "/#flow", label: "Flow" },
+  { href: "/dashboard", label: "Dashboard" },
+  { href: "/#agents", label: "Agents" },
+  { href: "/#footer", label: "Links" },
 ];
 
 export function SiteHeader() {
@@ -15,7 +15,7 @@ export function SiteHeader() {
 
   return (
     <header className="site-header">
-      <a className="brand" href="#top" aria-label="Subgate Nano home">
+      <a className="brand" href="/" aria-label="Subgate Nano home">
         <span className="brand-mark">
           <Zap aria-hidden="true" size={16} strokeWidth={1.7} />
         </span>

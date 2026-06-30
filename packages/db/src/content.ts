@@ -154,3 +154,53 @@ export const createContent = async (
 
   return mapContentItem(row);
 };
+
+export const syncContentBySlug = async (
+  db: SubgateDatabase,
+  input: CreateContentInput,
+  serializePricing: (pricing: PricingModel) => {
+    pricingType: string;
+    priceUsdc: string | null;
+    ratePerSecondUsdc: string | null;
+    durationSeconds: string | null;
+  },
+): Promise<ContentItem> => {
+  const parsed = createContentInputSchema.parse(input);
+  const storage = serializePricing(parsed.pricing);
+
+  const [row] = await db
+    .insert(contentItems)
+    .values({
+      creatorId: parsed.creatorId,
+      title: parsed.title,
+      slug: parsed.slug,
+      summary: parsed.summary,
+      body: parsed.body,
+      pricingType: storage.pricingType,
+      priceUsdc: storage.priceUsdc,
+      ratePerSecondUsdc: storage.ratePerSecondUsdc,
+      durationSeconds: storage.durationSeconds,
+      isActive: parsed.isActive,
+    })
+    .onConflictDoUpdate({
+      target: contentItems.slug,
+      set: {
+        creatorId: parsed.creatorId,
+        title: parsed.title,
+        summary: parsed.summary,
+        body: parsed.body,
+        pricingType: storage.pricingType,
+        priceUsdc: storage.priceUsdc,
+        ratePerSecondUsdc: storage.ratePerSecondUsdc,
+        durationSeconds: storage.durationSeconds,
+        isActive: parsed.isActive,
+      },
+    })
+    .returning();
+
+  if (!row) {
+    throw new Error("Failed to sync content item.");
+  }
+
+  return mapContentItem(row);
+};

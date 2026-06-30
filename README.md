@@ -206,21 +206,21 @@ subgate-nano/
 
 ### `apps/web`
 
-The primary user-facing application serving two audiences.
+The primary user-facing application. The current implementation is a Next.js product surface for introducing the Subgate Nano payment flow, creator console, reader unlock journey, and autonomous agent activity.
 
-**Creator portal** (`/dashboard`):
-- Publish gated content with per-access USDC pricing
-- Set streaming rates for live content
-- Monitor real-time revenue, access events, and payer analytics
-- Connect or generate a Circle-managed creator wallet
-- Manage Telegram channel integration for paid content drops
+Current capabilities:
+- Responsive red, white, and black interface using a Nothing-inspired visual system
+- Mobile-optimized header with hamburger navigation
+- Product sections for x402 unlock flow, creator dashboard preview, agent demo status, and audience roles
+- Footer with relevant project, protocol, and Circle documentation links
+- Floating monoline Lucide icons for subtle motion and product context
 
-**Reader portal** (`/c/[slug]`):
-- Browse a creator's published content catalog
-- Pay per piece in USDC via embedded Circle wallet or external wallet
-- View access history and active streaming sessions
+Planned app surfaces:
+- Creator portal (`/dashboard`) for publishing gated content, monitoring payments, and managing integrations
+- Reader portal (`/c/[slug]`) for paying to unlock creator content
+- Live API-backed dashboard data from `apps/api`
 
-**Tech stack:** Next.js 15 (App Router), Tailwind CSS, shadcn/ui, React Query, Viem
+**Tech stack:** Next.js 15 (App Router), React 19, `next/font`, custom CSS, Lucide React
 
 ### `apps/api`
 
@@ -234,6 +234,18 @@ Responsibilities:
 - Manage streaming session state and delegate metering to the worker
 
 **Tech stack:** Fastify, Drizzle ORM, NeonDB, Upstash Redis, Circle SDK
+
+### `apps/sidecar`
+
+External platform adapter service. It receives webhooks from self-hosted apps,
+normalizes them through `packages/integrations`, and syncs content into Subgate
+through the protected API.
+
+Current adapter:
+- Ghost content webhooks -> Subgate gated content via `POST /content/sync`
+
+The pattern is sidecar-first: the upstream community app remains unmodified, the
+sidecar validates webhook credentials, and Subgate handles x402 payment gating.
 
 ### `apps/bot-telegram`
 
@@ -277,21 +289,53 @@ A long-running background service responsible for:
 
 ### `packages/x402`
 
-The x402 protocol implementation. Exposes a Fastify middleware that wraps any route behind a payment gate.
+The x402 protocol helper package used by `apps/api` to construct Circle Gateway Nanopayments requirements, parse x402 payment signatures, verify payment terms, and submit settlement requests to Gateway.
 
-```typescript
-// Protect any route with a per-access USDC price
-app.get('/content/:id', x402Gate({ price: 0.003, currency: 'USDC', chain: 'arc' }), handler);
-```
+The current implementation is aligned with Circle Gateway's x402 batching flow:
+- `PAYMENT-REQUIRED` is returned as base64-encoded x402 v2 JSON
+- `PAYMENT-SIGNATURE` is accepted from the buyer or agent
+- `PAYMENT-RESPONSE` is returned after Gateway settlement
+- Amounts are encoded in USDC atomic units (`1 USDC = 1000000`)
+- Arc Testnet uses CAIP-2 network `eip155:5042002`
+- Arc Testnet USDC asset is `0x3600000000000000000000000000000000000000`
+- GatewayWalletBatched verifier is included in `accepts[0].extra.verifyingContract`
 
-When an unauthenticated request hits a gated route, the middleware returns:
+When an unauthenticated request hits a gated route, the API returns:
 
 ```http
 HTTP/1.1 402 Payment Required
-X-Payment-Required: {"price":"0.003","currency":"USDC","address":"0x...","chain":"arc"}
+PAYMENT-REQUIRED: eyJ4NDAyVmVyc2lvbiI6Miwi...
 ```
 
-Once the caller settles on Arc, they include the transaction reference in the next request header. The middleware verifies settlement via Gateway before passing the request to the handler.
+The decoded payment requirement follows this shape:
+
+```typescript
+{
+  x402Version: 2,
+  resource: {
+    url: "https://api.example.com/content/arc-settlement-explainer",
+    description: "Unlock Subgate content: Arc Settlement Explainer",
+    mimeType: "application/json"
+  },
+  accepts: [
+    {
+      scheme: "exact",
+      network: "eip155:5042002",
+      asset: "0x3600000000000000000000000000000000000000",
+      amount: "3000",
+      payTo: "0xCreatorWallet",
+      maxTimeoutSeconds: 604900,
+      extra: {
+        name: "GatewayWalletBatched",
+        version: "1",
+        verifyingContract: "0x0077777d7EBA4688BDeF3E311b846F25870A19B9"
+      }
+    }
+  ]
+}
+```
+
+The caller retries with `PAYMENT-SIGNATURE`. The API checks that the payment payload matches the required terms, calls Circle Gateway's `/v1/x402/settle`, records the payment, grants access, and returns the unlocked content with `PAYMENT-RESPONSE`.
 
 ### `packages/arc`
 
@@ -376,17 +420,17 @@ A fixed price for a defined window (e.g. $0.05 for 24 hours of access to a Teleg
 
 Subgate Nano implements the x402 HTTP payment protocol as defined in the circlefin/arc-nanopayments reference.
 
-Every gated endpoint in `apps/api` is wrapped with the `x402Gate` middleware from `packages/x402`. The middleware handles the full request-payment-verification-response cycle transparently.
+Gated content endpoints in `apps/api` use helpers from `packages/x402` to handle the request-payment-settlement-response cycle.
 
 Request headers used:
 
 | Header | Direction | Purpose |
 |--------|-----------|---------|
-| `X-Payment-Required` | Server to client | Price, currency, Arc wallet address |
-| `X-Payment-Receipt` | Client to server | Arc transaction reference for verification |
-| `X-Payment-Verified` | Server internal | Set by middleware after Gateway confirmation |
+| `PAYMENT-REQUIRED` | Server to client | Base64-encoded x402 v2 payment requirements |
+| `PAYMENT-SIGNATURE` | Client to server | Base64-encoded signed payment payload |
+| `PAYMENT-RESPONSE` | Server to client | Base64-encoded Gateway settlement response |
 
-The agent demo is the canonical client-side implementation, showing how a paying agent parses the `X-Payment-Required` header, settles via its Circle wallet, and retries the request with `X-Payment-Receipt`.
+The agent demo is the canonical client-side implementation, showing how a paying agent discovers x402 support, signs through Circle Gateway's `GatewayClient`, and retries the request with `PAYMENT-SIGNATURE`.
 
 ---
 
@@ -503,10 +547,12 @@ erDiagram
         uuid creator_id FK
         string title
         string slug
+        text summary
         text body
-        string pricing_model
-        float price_usdc
-        float rate_per_second_usdc
+        string pricing_type
+        numeric price_usdc
+        numeric rate_per_second_usdc
+        numeric duration_seconds
         boolean is_active
         timestamp created_at
     }
@@ -515,9 +561,13 @@ erDiagram
         uuid id PK
         uuid content_id FK
         string payer_address
-        string pricing_model
+        string pricing_type
+        numeric price_usdc
+        numeric rate_per_second_usdc
+        numeric duration_seconds
         timestamp granted_at
         timestamp expires_at
+        timestamp revoked_at
         boolean is_active
     }
 
@@ -525,12 +575,16 @@ erDiagram
         uuid id PK
         uuid content_id FK
         uuid access_grant_id FK
-        string arc_tx_reference
-        float amount_usdc
-        float platform_fee_usdc
-        float creator_credit_usdc
+        string payer_address
+        string payment_identifier
+        text payment_payload
+        text settlement_response
+        string gateway_transaction_id
+        numeric amount_usdc
         string payment_type
+        string status
         timestamp settled_at
+        timestamp created_at
     }
 
     streaming_sessions {
@@ -554,6 +608,7 @@ erDiagram
 
     creators ||--o{ content_items : "publishes"
     content_items ||--o{ access_grants : "grants"
+    content_items ||--o{ payments : "paid for"
     content_items ||--o{ streaming_sessions : "streams"
     access_grants ||--o{ payments : "paid via"
 ```
@@ -583,9 +638,21 @@ pnpm install
 ### Database Setup
 
 ```bash
-pnpm --filter @subgate/db generate
-pnpm --filter @subgate/db migrate
+pnpm db:generate
+pnpm db:migrate
+pnpm db:seed
 ```
+
+`pnpm db:seed` inserts or updates the demo creator plus three real content records used by `apps/api`, `apps/web`, and `apps/agent-demo`.
+
+### Smoke Test
+
+```bash
+pnpm smoke:api
+pnpm smoke:sidecar
+```
+
+The API smoke test runs the real quote -> payment required -> signed payment -> mocked Gateway settlement -> access grant flow against the configured database. The sidecar smoke test verifies Ghost webhook normalization and sync behavior with a mocked Subgate API client.
 
 ### Arc Testnet Setup
 
@@ -619,6 +686,8 @@ pnpm --filter @subgate/agent-demo dev --query "your research query" --budget 0.1
 ### Build
 
 ```bash
+pnpm typecheck
+pnpm --filter @subgate/web build
 pnpm build
 ```
 

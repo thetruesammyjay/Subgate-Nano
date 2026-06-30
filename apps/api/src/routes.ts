@@ -1,12 +1,18 @@
 import { createAccessService } from "@subgate/access";
 import {
+  consumeCreatorMagicLinkToken,
   createPaymentRecord,
   createContent,
+  createCreatorMagicLinkToken,
   findPaymentByIdentifier,
+  getCreatorBySessionToken,
   getCreatorById,
   getContentById,
   getContentBySlug,
+  listCreators,
   listActiveCatalogItems,
+  revokeCreatorSession,
+  syncContentBySlug,
   type SubgateDatabase,
 } from "@subgate/db";
 import { quotePricing, serializePricingForStorage } from "@subgate/pricing";
@@ -29,21 +35,161 @@ import {
   payerAddressSchema,
 } from "@subgate/types";
 import type { FastifyInstance } from "fastify";
+import type { FastifyReply, FastifyRequest } from "fastify";
+import { z } from "zod";
 import type { ApiEnv } from "./env.js";
+
+export type X402SettlementService = Pick<X402FacilitatorClient, "settle">;
+
+export type RegisterRoutesOptions = {
+  facilitator?: X402SettlementService;
+};
 
 export const registerRoutes = async (
   app: FastifyInstance,
   db: SubgateDatabase,
   env: ApiEnv,
+  options: RegisterRoutesOptions = {},
 ) => {
   const accessService = createAccessService(db);
-  const facilitator = new X402FacilitatorClient({
-    facilitatorUrl: env.X402_FACILITATOR_URL,
-  });
+  const facilitator =
+    options.facilitator ??
+    new X402FacilitatorClient({
+      facilitatorUrl: env.X402_FACILITATOR_URL,
+    });
+  const requireInternalService = async (
+    request: FastifyRequest,
+    reply: FastifyReply,
+  ) => {
+    const providedSecret = request.headers["x-subgate-internal-secret"];
+    const secret = Array.isArray(providedSecret)
+      ? providedSecret[0]
+      : providedSecret;
+
+    if (secret !== env.INTERNAL_SERVICE_SECRET) {
+      return reply.code(401).send({
+        message: "Internal service credentials are required.",
+      });
+    }
+  };
 
   app.get("/catalog", async () => {
     return listActiveCatalogItems(db);
   });
+
+  app.post("/auth/creator/magic-link", async (request, reply) => {
+    const parsed = z
+      .object({
+        email: z.string().email(),
+      })
+      .safeParse(request.body);
+
+    if (!parsed.success) {
+      return reply.code(400).send({
+        message: "A valid creator email is required.",
+        issues: parsed.error.issues,
+      });
+    }
+
+    const result = await createCreatorMagicLinkToken(db, parsed.data.email);
+    const response: {
+      message: string;
+      expiresAt?: string;
+      devMagicLinkToken?: string;
+    } = {
+      message:
+        "If a creator account exists for that email, a magic link has been issued.",
+    };
+
+    if (result) {
+      response.expiresAt = result.expiresAt;
+
+      if (process.env.NODE_ENV !== "production") {
+        response.devMagicLinkToken = result.token;
+        app.log.info(
+          {
+            creatorId: result.creator.id,
+            email: result.creator.email,
+            token: result.token,
+          },
+          "Development creator magic-link token issued.",
+        );
+      }
+    }
+
+    return response;
+  });
+
+  app.post("/auth/creator/session", async (request, reply) => {
+    const parsed = z
+      .object({
+        token: z.string().min(16),
+      })
+      .safeParse(request.body);
+
+    if (!parsed.success) {
+      return reply.code(400).send({
+        message: "A valid magic-link token is required.",
+        issues: parsed.error.issues,
+      });
+    }
+
+    const session = await consumeCreatorMagicLinkToken(db, parsed.data.token);
+
+    if (!session) {
+      return reply.code(401).send({
+        message: "Magic link is invalid, expired, or already used.",
+      });
+    }
+
+    return session;
+  });
+
+  app.get("/auth/creator/session", async (request, reply) => {
+    const authorization = request.headers.authorization;
+    const token = authorization?.startsWith("Bearer ")
+      ? authorization.slice("Bearer ".length)
+      : "";
+
+    if (!token) {
+      return reply.code(401).send({
+        message: "Creator session token is required.",
+      });
+    }
+
+    const creator = await getCreatorBySessionToken(db, token);
+
+    if (!creator) {
+      return reply.code(401).send({
+        message: "Creator session is invalid or expired.",
+      });
+    }
+
+    return { creator };
+  });
+
+  app.post("/auth/creator/logout", async (request) => {
+    const authorization = request.headers.authorization;
+    const token = authorization?.startsWith("Bearer ")
+      ? authorization.slice("Bearer ".length)
+      : "";
+
+    if (token) {
+      await revokeCreatorSession(db, token);
+    }
+
+    return { ok: true };
+  });
+
+  app.get(
+    "/creators",
+    {
+      preHandler: requireInternalService,
+    },
+    async () => {
+      return listCreators(db);
+    },
+  );
 
   app.get("/content/:slug", async (request, reply) => {
     const params = request.params as { slug: string };
@@ -99,18 +245,24 @@ export const registerRoutes = async (
       const access = await accessService.check(content.id, existingPayment.payerAddress);
 
       if (access.hasAccess) {
-        return contentUnlockSchema.parse({
-          id: content.id,
-          creatorId: content.creatorId,
-          title: content.title,
-          slug: content.slug,
-          summary: content.summary,
-          body: content.body,
-          pricing: content.pricing,
-          accessGrantId: existingPayment.accessGrantId,
-          paymentId: existingPayment.id,
-          paymentResponse: JSON.parse(existingPayment.settlementResponse),
-        });
+        const paymentResponse = JSON.parse(existingPayment.settlementResponse);
+
+        return reply
+          .header(PAYMENT_RESPONSE_HEADER, encodePaymentResponse(paymentResponse))
+          .send(
+            contentUnlockSchema.parse({
+              id: content.id,
+              creatorId: content.creatorId,
+              title: content.title,
+              slug: content.slug,
+              summary: content.summary,
+              body: content.body,
+              pricing: content.pricing,
+              accessGrantId: existingPayment.accessGrantId,
+              paymentId: existingPayment.id,
+              paymentResponse,
+            }),
+          );
       }
     }
 
@@ -209,54 +361,97 @@ export const registerRoutes = async (
     return accessService.check(content.id, payerAddress.data);
   });
 
-  app.get("/content/:contentId/access-grants", async (request, reply) => {
-    const params = request.params as { contentId: string };
-    const content = await getContentById(db, params.contentId);
+  app.get(
+    "/content/:contentId/access-grants",
+    {
+      preHandler: requireInternalService,
+    },
+    async (request, reply) => {
+      const params = request.params as { contentId: string };
+      const content = await getContentById(db, params.contentId);
 
-    if (!content) {
-      return reply.code(404).send({ message: "Content not found." });
-    }
+      if (!content) {
+        return reply.code(404).send({ message: "Content not found." });
+      }
 
-    return accessService.listForContent(content.id);
-  });
+      return accessService.listForContent(content.id);
+    },
+  );
 
-  app.post("/content", async (request, reply) => {
-    const parsed = createContentInputSchema.safeParse(request.body);
+  app.post(
+    "/content",
+    {
+      preHandler: requireInternalService,
+    },
+    async (request, reply) => {
+      const parsed = createContentInputSchema.safeParse(request.body);
 
-    if (!parsed.success) {
-      return reply.code(400).send({
-        message: "Invalid content payload.",
-        issues: parsed.error.issues,
+      if (!parsed.success) {
+        return reply.code(400).send({
+          message: "Invalid content payload.",
+          issues: parsed.error.issues,
+        });
+      }
+
+      const content = await createContent(db, parsed.data, serializePricingForStorage);
+
+      return reply.code(201).send(content);
+    },
+  );
+
+  app.post(
+    "/content/sync",
+    {
+      preHandler: requireInternalService,
+    },
+    async (request, reply) => {
+      const parsed = createContentInputSchema.safeParse(request.body);
+
+      if (!parsed.success) {
+        return reply.code(400).send({
+          message: "Invalid content sync payload.",
+          issues: parsed.error.issues,
+        });
+      }
+
+      const content = await syncContentBySlug(
+        db,
+        parsed.data,
+        serializePricingForStorage,
+      );
+
+      return reply.send(content);
+    },
+  );
+
+  app.post(
+    "/content/:contentId/access-grants",
+    {
+      preHandler: requireInternalService,
+    },
+    async (request, reply) => {
+      const params = request.params as { contentId: string };
+      const content = await getContentById(db, params.contentId);
+
+      if (!content) {
+        return reply.code(404).send({ message: "Content not found." });
+      }
+
+      const parsed = accessGrantRequestSchema.safeParse({
+        ...(request.body as Record<string, unknown>),
+        contentId: params.contentId,
       });
-    }
 
-    const content = await createContent(db, parsed.data, serializePricingForStorage);
+      if (!parsed.success) {
+        return reply.code(400).send({
+          message: "Invalid access-grant payload.",
+          issues: parsed.error.issues,
+        });
+      }
 
-    return reply.code(201).send(content);
-  });
+      const grant = await accessService.grant(parsed.data);
 
-  app.post("/content/:contentId/access-grants", async (request, reply) => {
-    const params = request.params as { contentId: string };
-    const content = await getContentById(db, params.contentId);
-
-    if (!content) {
-      return reply.code(404).send({ message: "Content not found." });
-    }
-
-    const parsed = accessGrantRequestSchema.safeParse({
-      ...(request.body as Record<string, unknown>),
-      contentId: params.contentId,
-    });
-
-    if (!parsed.success) {
-      return reply.code(400).send({
-        message: "Invalid access-grant payload.",
-        issues: parsed.error.issues,
-      });
-    }
-
-    const grant = await accessService.grant(parsed.data);
-
-    return reply.code(201).send(grant);
-  });
+      return reply.code(201).send(grant);
+    },
+  );
 };

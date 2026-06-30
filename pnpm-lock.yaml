@@ -59,8 +59,33 @@ importers:
         specifier: ^4.19.2
         version: 4.22.4
 
+  apps/sidecar:
+    dependencies:
+      '@subgate/integrations':
+        specifier: workspace:*
+        version: link:../../packages/integrations
+      '@subgate/types':
+        specifier: workspace:*
+        version: link:../../packages/types
+      fastify:
+        specifier: ^5.1.0
+        version: 5.9.0
+      zod:
+        specifier: ^3.23.8
+        version: 3.25.76
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.1
+        version: 22.20.0
+      tsx:
+        specifier: ^4.19.2
+        version: 4.22.4
+
   apps/web:
     dependencies:
+      '@subgate/types':
+        specifier: workspace:*
+        version: link:../../packages/types
       lucide-react:
         specifier: ^0.468.0
         version: 0.468.0(react@19.2.7)
@@ -127,6 +152,22 @@ importers:
       drizzle-kit:
         specifier: ^0.28.1
         version: 0.28.1
+      tsx:
+        specifier: ^4.19.2
+        version: 4.22.4
+
+  packages/integrations:
+    dependencies:
+      '@subgate/types':
+        specifier: workspace:*
+        version: link:../types
+      zod:
+        specifier: ^3.23.8
+        version: 3.25.76
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.1
+        version: 22.20.0
 
   packages/pricing:
     dependencies:

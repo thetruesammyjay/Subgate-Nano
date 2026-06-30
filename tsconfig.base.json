@@ -17,7 +17,8 @@
       "@subgate/db": ["packages/db/src/index.ts"],
       "@subgate/pricing": ["packages/pricing/src/index.ts"],
       "@subgate/access": ["packages/access/src/index.ts"],
-      "@subgate/x402": ["packages/x402/src/index.ts"]
+      "@subgate/x402": ["packages/x402/src/index.ts"],
+      "@subgate/integrations": ["packages/integrations/src/index.ts"]
     },
     "declaration": true,
     "declarationMap": true,

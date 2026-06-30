@@ -10,6 +10,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@subgate/types": "workspace:*",
     "lucide-react": "^0.468.0",
     "next": "^15.1.0",
     "react": "^19.0.0",

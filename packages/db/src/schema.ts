@@ -42,6 +42,48 @@ export const contentItems = pgTable("content_items", {
     .notNull(),
 });
 
+export const creatorLoginTokens = pgTable(
+  "creator_login_tokens",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    creatorId: uuid("creator_id")
+      .notNull()
+      .references(() => creators.id, { onDelete: "cascade" }),
+    tokenHash: varchar("token_hash", { length: 128 }).notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    usedAt: timestamp("used_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    tokenHashIdx: uniqueIndex("creator_login_tokens_token_hash_idx").on(
+      table.tokenHash,
+    ),
+  }),
+);
+
+export const creatorSessions = pgTable(
+  "creator_sessions",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    creatorId: uuid("creator_id")
+      .notNull()
+      .references(() => creators.id, { onDelete: "cascade" }),
+    sessionTokenHash: varchar("session_token_hash", { length: 128 }).notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    sessionTokenHashIdx: uniqueIndex("creator_sessions_token_hash_idx").on(
+      table.sessionTokenHash,
+    ),
+  }),
+);
+
 export const accessGrants = pgTable("access_grants", {
   id: uuid("id").defaultRandom().primaryKey(),
   contentId: uuid("content_id")

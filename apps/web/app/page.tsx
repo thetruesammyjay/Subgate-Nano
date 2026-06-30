@@ -9,35 +9,77 @@ import {
   ShieldCheck,
   WalletCards,
 } from "lucide-react";
+import Link from "next/link";
 import { FloatingIcons } from "../components/floating-icons";
 import { SiteHeader } from "../components/site-header";
+import { fetchHomeApiState, type CatalogContentState } from "../lib/subgate-api";
 
-const stats = [
-  { label: "Min payment", value: "$0.000001" },
-  { label: "Arc target", value: "<500ms" },
-  { label: "Currency", value: "USDC" },
-];
+const formatUsdc = (value: number | null | undefined) => {
+  if (value === null || value === undefined) {
+    return "PENDING";
+  }
+
+  return `$${value.toFixed(6).replace(/0+$/, "").replace(/\.$/, "")}`;
+};
+
+const formatPricingLabel = ({ item, quote }: CatalogContentState) => {
+  if (quote) {
+    return `${formatUsdc(quote.amountUsdc)} USDC`;
+  }
+
+  switch (item.pricing.type) {
+    case "per_access":
+    case "per_citation":
+      return `${formatUsdc(item.pricing.priceUsdc)} USDC`;
+    case "per_second":
+      return `${formatUsdc(item.pricing.rateUsdc)} USDC/s`;
+    case "timed":
+      return `${formatUsdc(item.pricing.priceUsdc)} USDC`;
+  }
+};
+
+const getUnlockState = (state: CatalogContentState) => {
+  if (state.paymentRequired) {
+    return "402 READY";
+  }
+
+  if (state.error) {
+    return "CHECK API";
+  }
+
+  return "LIVE";
+};
 
 const flowSteps = [
-  { label: "Quote", value: "402 terms issued" },
-  { label: "Pay", value: "Gateway signature" },
-  { label: "Verify", value: "x402 settle" },
-  { label: "Unlock", value: "Access grant" },
+  { label: "Quote", value: "GET /content/:slug/quote" },
+  { label: "Pay", value: "GatewayClient signature" },
+  { label: "Verify", value: "Gateway x402 settle" },
+  { label: "Unlock", value: "Access grant persisted" },
 ];
 
-const dashboardRows = [
-  { label: "Arc Settlement Explainer", value: "$0.003", state: "LIVE" },
-  { label: "Per-second Stream", value: "$0.001/s", state: "METERED" },
-  { label: "Agent Citation Toll", value: "$0.0001", state: "READY" },
-];
+export default async function Home() {
+  const apiState = await fetchHomeApiState();
+  const primaryContent = apiState.catalog[0] ?? null;
+  const heroPrice = primaryContent
+    ? formatPricingLabel(primaryContent)
+    : "API OFFLINE";
+  const readyCount = apiState.catalog.filter((state) => state.paymentRequired).length;
 
-const agentEvents = [
-  { label: "Catalog scanned", value: "4 endpoints" },
-  { label: "Budget guard", value: "$0.100000" },
-  { label: "Last decision", value: "PAY" },
-];
+  const stats = [
+    { label: "Catalog items", value: String(apiState.catalog.length) },
+    { label: "402 terms", value: String(readyCount) },
+    { label: "API", value: apiState.isOnline ? "ONLINE" : "OFFLINE" },
+  ];
 
-export default function Home() {
+  const agentEvents = [
+    { label: "Catalog scanned", value: `${apiState.catalog.length} endpoints` },
+    { label: "Gateway terms", value: `${readyCount} ready` },
+    {
+      label: "Last decision",
+      value: apiState.isOnline && readyCount > 0 ? "READY" : "WAIT",
+    },
+  ];
+
   return (
     <main id="top">
       <SiteHeader />
@@ -56,19 +98,20 @@ export default function Home() {
               View Flow <ArrowRight aria-hidden="true" size={16} />
             </a>
             <a className="button secondary" href="#dashboard">
-              Creator Console
+              Live Catalog
             </a>
           </div>
         </div>
 
         <div className="hero-instrument" aria-label="Live payment instrument">
-          <p className="instrument-label">ACCESS PRICE</p>
+          <p className="instrument-label">LIVE ACCESS PRICE</p>
           <div className="instrument-value">
-            $0.003<span>USDC</span>
+            {heroPrice}
+            <span>{primaryContent?.item.pricing.type ?? "USDC"}</span>
           </div>
           <div className="segment-bar" aria-hidden="true">
             {Array.from({ length: 18 }).map((_, index) => (
-              <span key={index} className={index < 11 ? "filled" : ""} />
+              <span key={index} className={index < readyCount * 6 ? "filled" : ""} />
             ))}
           </div>
           <div className="instrument-grid">
@@ -79,6 +122,12 @@ export default function Home() {
               </div>
             ))}
           </div>
+          {!apiState.isOnline && (
+            <p className="api-warning">
+              API unavailable at {apiState.apiUrl}. Start `@subgate/api` to load
+              catalog, quote, and unlock states.
+            </p>
+          )}
         </div>
       </section>
 
@@ -100,31 +149,45 @@ export default function Home() {
 
       <section id="dashboard" className="section-shell console-section">
         <div className="console-main">
-          <p className="eyebrow">CREATOR DASHBOARD</p>
-          <h2>Publish, meter, and watch each unlock settle.</h2>
+          <p className="eyebrow">LIVE CATALOG</p>
+          <h2>Catalog, quotes, and x402 unlock state from the API.</h2>
           <div className="status-strip">
             <span>
-              <CheckCircle2 aria-hidden="true" size={17} /> Gateway online
+              <CheckCircle2 aria-hidden="true" size={17} />{" "}
+              {apiState.isOnline ? "API online" : "API offline"}
             </span>
             <span>
-              <Clock3 aria-hidden="true" size={17} /> Batch pending
+              <Clock3 aria-hidden="true" size={17} /> Revalidates every 15s
             </span>
             <span>
-              <ShieldCheck aria-hidden="true" size={17} /> Access logged
+              <ShieldCheck aria-hidden="true" size={17} /> Payment terms decoded
             </span>
           </div>
         </div>
 
         <div className="data-panel" aria-label="Content pricing table">
-          {dashboardRows.map((row) => (
-            <div className="data-row" key={row.label}>
-              <div>
-                <span>{row.state}</span>
-                <strong>{row.label}</strong>
-              </div>
-              <p>{row.value}</p>
+          {apiState.catalog.length > 0 ? (
+            apiState.catalog.map((state) => (
+              <Link
+                className="data-row data-row-link"
+                href={`/content/${state.item.slug}`}
+                key={state.item.id}
+              >
+                <div>
+                  <span>{getUnlockState(state)}</span>
+                  <strong>{state.item.title}</strong>
+                  <small>{state.item.summary}</small>
+                </div>
+                <p>{formatPricingLabel(state)}</p>
+              </Link>
+            ))
+          ) : (
+            <div className="empty-state">
+              <span>NO LIVE CATALOG</span>
+              <strong>Seed the database and start the API.</strong>
+              <p>{apiState.error ?? "No content records were returned."}</p>
             </div>
-          ))}
+          )}
         </div>
       </section>
 
@@ -175,7 +238,7 @@ export default function Home() {
         </div>
         <nav aria-label="Footer navigation">
           <a href="#flow">Payment Flow</a>
-          <a href="#dashboard">Dashboard</a>
+          <a href="#dashboard">Live Catalog</a>
           <a href="#agents">Agent Demo</a>
           <a href="https://www.x402.org/">x402</a>
           <a href="https://developers.circle.com/">Circle Docs</a>
