@@ -789,7 +789,7 @@ h2 {
 .dashboard-revenue-grid {
   display: grid;
   gap: 1px;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   padding-bottom: 0;
 }
 

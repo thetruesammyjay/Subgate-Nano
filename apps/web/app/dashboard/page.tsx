@@ -129,15 +129,23 @@ export default async function DashboardPage() {
       <section className="section-shell dashboard-revenue-grid">
         <article>
           <CircleDollarSign aria-hidden="true" />
-          <span>Total Revenue</span>
+          <span>Net Revenue</span>
           <strong>{formatUsdc(stats?.revenueUsdc)}</strong>
-          <p>Settled x402 payments recorded for {creator.displayName}.</p>
+          <p>
+            Gross {formatUsdc(stats?.grossRevenueUsdc)} minus platform fees.
+          </p>
         </article>
         <article>
           <ReceiptText aria-hidden="true" />
           <span>Payments</span>
           <strong>{stats?.settledPaymentCount ?? 0} settled</strong>
           <p>{stats?.paymentCount ?? 0} total payment attempts in the ledger.</p>
+        </article>
+        <article>
+          <ShieldCheck aria-hidden="true" />
+          <span>Platform Fees</span>
+          <strong>{formatUsdc(stats?.platformFeeUsdc)}</strong>
+          <p>Posted fee ledger entries for settled creator payments.</p>
         </article>
         <article>
           <FileText aria-hidden="true" />
@@ -210,9 +218,12 @@ export default async function DashboardPage() {
                   <small>{shortAddress(payment.payerAddress)}</small>
                 </div>
                 <div>
-                  <span>Amount</span>
+                  <span>Gross</span>
                   <strong>{formatUsdc(payment.amountUsdc)}</strong>
-                  <small>{payment.paymentType}</small>
+                  <small>
+                    Net {formatUsdc(payment.creatorNetUsdc)} / fee{" "}
+                    {formatUsdc(payment.platformFeeUsdc)}
+                  </small>
                 </div>
                 <div>
                   <span>Settled</span>

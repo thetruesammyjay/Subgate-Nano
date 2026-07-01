@@ -5,6 +5,7 @@ const workerEnvSchema = z.object({
   WORKER_POLL_INTERVAL_MS: z.coerce.number().int().positive().default(1000),
   WORKER_STREAMING_SESSION_LIMIT: z.coerce.number().int().positive().default(50),
   STREAMING_BATCH_THRESHOLD_USDC: z.coerce.number().positive().default(0.01),
+  PLATFORM_FEE_PERCENT: z.coerce.number().min(0).max(100).default(5),
 });
 
 export type WorkerEnv = z.infer<typeof workerEnvSchema>;

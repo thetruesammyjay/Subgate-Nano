@@ -285,6 +285,24 @@ export const payments = pgTable(
     settlementResponse: text("settlement_response").notNull(),
     gatewayTransactionId: varchar("gateway_transaction_id", { length: 255 }),
     amountUsdc: numeric("amount_usdc", { precision: 18, scale: 6 }).notNull(),
+    platformFeeUsdc: numeric("platform_fee_usdc", {
+      precision: 18,
+      scale: 6,
+    })
+      .default("0")
+      .notNull(),
+    creatorNetUsdc: numeric("creator_net_usdc", {
+      precision: 18,
+      scale: 6,
+    })
+      .default("0")
+      .notNull(),
+    platformFeePercent: numeric("platform_fee_percent", {
+      precision: 7,
+      scale: 4,
+    })
+      .default("0")
+      .notNull(),
     paymentType: varchar("payment_type", { length: 32 }).notNull(),
     status: varchar("status", { length: 32 }).notNull(),
     settledAt: timestamp("settled_at", { withTimezone: true }),
@@ -296,5 +314,48 @@ export const payments = pgTable(
     paymentIdentifierIdx: uniqueIndex("payments_payment_identifier_idx").on(
       table.paymentIdentifier,
     ),
+  }),
+);
+
+export const platformFeeLedgerEntries = pgTable(
+  "platform_fee_ledger_entries",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    paymentId: uuid("payment_id")
+      .notNull()
+      .references(() => payments.id, { onDelete: "cascade" }),
+    creatorId: uuid("creator_id")
+      .notNull()
+      .references(() => creators.id, { onDelete: "cascade" }),
+    contentId: uuid("content_id")
+      .notNull()
+      .references(() => contentItems.id, { onDelete: "cascade" }),
+    grossAmountUsdc: numeric("gross_amount_usdc", {
+      precision: 18,
+      scale: 6,
+    }).notNull(),
+    platformFeeUsdc: numeric("platform_fee_usdc", {
+      precision: 18,
+      scale: 6,
+    }).notNull(),
+    creatorNetUsdc: numeric("creator_net_usdc", {
+      precision: 18,
+      scale: 6,
+    }).notNull(),
+    platformFeePercent: numeric("platform_fee_percent", {
+      precision: 7,
+      scale: 4,
+    }).notNull(),
+    currency: varchar("currency", { length: 16 }).default("USDC").notNull(),
+    status: varchar("status", { length: 32 }).default("posted").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    paymentUniqueIdx: uniqueIndex("platform_fee_ledger_payment_idx").on(
+      table.paymentId,
+    ),
+    creatorIdx: index("platform_fee_ledger_creator_idx").on(table.creatorId),
   }),
 );

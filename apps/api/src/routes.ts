@@ -1,10 +1,11 @@
 import { createAccessService } from "@subgate/access";
 import {
   consumeCreatorMagicLinkToken,
-  createPaymentRecord,
   createContent,
   createCreatorMagicLinkToken,
+  createPendingPaymentRecord,
   findPaymentByIdentifier,
+  failPaymentRecord,
   getCreatorBySessionToken,
   getCreatorById,
   getCreatorStats,
@@ -18,7 +19,10 @@ import {
   listIntegrationSources,
   listCreators,
   listActiveCatalogItems,
+  markPaymentSettling,
+  recordPlatformFeeLedgerEntry,
   revokeCreatorSession,
+  settlePaymentRecord,
   stopStreamingSession,
   syncContentBySlug,
   syncExternalIntegrationMapping,
@@ -495,7 +499,7 @@ export const registerRoutes = async (
     const paymentIdentifier = getPaymentPayloadIdentifier(paymentPayload);
     const existingPayment = await findPaymentByIdentifier(db, paymentIdentifier);
 
-    if (existingPayment?.accessGrantId) {
+    if (existingPayment?.status === "settled" && existingPayment.accessGrantId) {
       const access = await accessService.check(content.id, existingPayment.payerAddress);
 
       if (access.hasAccess) {
@@ -520,6 +524,30 @@ export const registerRoutes = async (
       }
     }
 
+    if (existingPayment?.status === "failed") {
+      const paymentResponse = JSON.parse(existingPayment.settlementResponse);
+
+      return reply
+        .code(402)
+        .header(PAYMENT_REQUIRED_HEADER, encodePaymentRequired(paymentRequired))
+        .header(PAYMENT_RESPONSE_HEADER, encodePaymentResponse(paymentResponse))
+        .send({
+          message: paymentResponse.message ?? "Payment was not verified.",
+          payment: paymentResponse,
+        });
+    }
+
+    if (
+      existingPayment?.status === "pending" ||
+      existingPayment?.status === "settling"
+    ) {
+      return reply.code(409).send({
+        message: "Payment is already being processed.",
+        paymentId: existingPayment.id,
+        status: existingPayment.status,
+      });
+    }
+
     try {
       assertPaymentMatchesRequirement(paymentPayload, paymentRequired);
     } catch (error) {
@@ -528,9 +556,101 @@ export const registerRoutes = async (
       });
     }
 
-    const settlement = await facilitator.settle(paymentPayload, paymentRequired);
+    const pendingPayment = await createPendingPaymentRecord(db, {
+      contentId: content.id,
+      payerAddress:
+        readPayloadString(paymentPayload.payload, "payer") ?? "pending",
+      paymentIdentifier,
+      paymentPayload,
+      amountUsdc: quote.amountUsdc,
+      paymentType: content.pricing.type,
+      platformFeePercent: env.PLATFORM_FEE_PERCENT,
+    });
+
+    if (!pendingPayment.created) {
+      if (
+        pendingPayment.payment.status === "settled" &&
+        pendingPayment.payment.accessGrantId
+      ) {
+        const access = await accessService.check(
+          content.id,
+          pendingPayment.payment.payerAddress,
+        );
+
+        if (access.hasAccess) {
+          const paymentResponse = JSON.parse(
+            pendingPayment.payment.settlementResponse,
+          );
+
+          return reply
+            .header(PAYMENT_RESPONSE_HEADER, encodePaymentResponse(paymentResponse))
+            .send(
+              contentUnlockSchema.parse({
+                id: content.id,
+                creatorId: content.creatorId,
+                title: content.title,
+                slug: content.slug,
+                summary: content.summary,
+                body: content.body,
+                pricing: content.pricing,
+                accessGrantId: pendingPayment.payment.accessGrantId,
+                paymentId: pendingPayment.payment.id,
+                paymentResponse,
+              }),
+            );
+        }
+      }
+
+      if (pendingPayment.payment.status === "failed") {
+        const paymentResponse = JSON.parse(
+          pendingPayment.payment.settlementResponse,
+        );
+
+        return reply
+          .code(402)
+          .header(PAYMENT_REQUIRED_HEADER, encodePaymentRequired(paymentRequired))
+          .header(PAYMENT_RESPONSE_HEADER, encodePaymentResponse(paymentResponse))
+          .send({
+            message: paymentResponse.message ?? "Payment was not verified.",
+            payment: paymentResponse,
+          });
+      }
+
+      return reply.code(409).send({
+        message: "Payment is already being processed.",
+        paymentId: pendingPayment.payment.id,
+        status: pendingPayment.payment.status,
+      });
+    }
+
+    await markPaymentSettling(db, pendingPayment.payment.id);
+
+    let settlement;
+
+    try {
+      settlement = await facilitator.settle(paymentPayload, paymentRequired);
+    } catch (error) {
+      const failedSettlement = {
+        success: false,
+        transaction: "",
+        network: paymentPayload.accepted.network,
+        message:
+          error instanceof Error
+            ? error.message
+            : "Gateway settlement request failed.",
+      };
+
+      await failPaymentRecord(db, pendingPayment.payment.id, failedSettlement);
+
+      return reply.code(502).send({
+        message: failedSettlement.message,
+        payment: failedSettlement,
+      });
+    }
 
     if (!settlement.success) {
+      await failPaymentRecord(db, pendingPayment.payment.id, settlement);
+
       return reply
         .code(402)
         .header(PAYMENT_REQUIRED_HEADER, encodePaymentRequired(paymentRequired))
@@ -542,6 +662,14 @@ export const registerRoutes = async (
     }
 
     if (!settlement.payer) {
+      const failedSettlement = {
+        ...settlement,
+        success: false,
+        message: "Gateway settlement succeeded but did not include a payer address.",
+      };
+
+      await failPaymentRecord(db, pendingPayment.payment.id, failedSettlement);
+
       return reply.code(502).send({
         message: "Gateway settlement succeeded but did not include a payer address.",
       });
@@ -553,15 +681,14 @@ export const registerRoutes = async (
       pricing: content.pricing,
     });
 
-    const payment = await createPaymentRecord(db, {
-      contentId: content.id,
+    const payment = await settlePaymentRecord(db, pendingPayment.payment.id, {
       accessGrantId: grant.id,
       payerAddress: settlement.payer,
-      paymentIdentifier,
-      paymentPayload,
       settlementResponse: settlement,
-      amountUsdc: quote.amountUsdc,
-      paymentType: content.pricing.type,
+    });
+    await recordPlatformFeeLedgerEntry(db, {
+      payment,
+      creatorId: content.creatorId,
     });
 
     return reply

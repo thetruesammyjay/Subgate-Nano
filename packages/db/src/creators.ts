@@ -62,7 +62,9 @@ export const getCreatorStats = async (
     .select({
       paymentCount: sql<number>`count(${payments.id})::int`,
       settledPaymentCount: sql<number>`count(${payments.id}) filter (where ${payments.status} = 'settled')::int`,
-      revenueUsdc: sql<string>`coalesce(sum(${payments.amountUsdc}) filter (where ${payments.status} = 'settled'), 0)::text`,
+      revenueUsdc: sql<string>`coalesce(sum(${payments.creatorNetUsdc}) filter (where ${payments.status} = 'settled'), 0)::text`,
+      grossRevenueUsdc: sql<string>`coalesce(sum(${payments.amountUsdc}) filter (where ${payments.status} = 'settled'), 0)::text`,
+      platformFeeUsdc: sql<string>`coalesce(sum(${payments.platformFeeUsdc}) filter (where ${payments.status} = 'settled'), 0)::text`,
     })
     .from(payments)
     .innerJoin(contentItems, eq(payments.contentId, contentItems.id))
@@ -75,5 +77,7 @@ export const getCreatorStats = async (
     paymentCount: paymentStats?.paymentCount ?? 0,
     settledPaymentCount: paymentStats?.settledPaymentCount ?? 0,
     revenueUsdc: Number(paymentStats?.revenueUsdc ?? 0),
+    grossRevenueUsdc: Number(paymentStats?.grossRevenueUsdc ?? 0),
+    platformFeeUsdc: Number(paymentStats?.platformFeeUsdc ?? 0),
   });
 };

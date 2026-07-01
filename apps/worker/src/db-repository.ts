@@ -2,9 +2,13 @@ import { createAccessService } from "@subgate/access";
 import {
   applyStreamingTick,
   closeStreamingSession,
-  createPaymentRecord,
+  createPendingPaymentRecord,
+  getContentById,
   listTickableStreamingSessions,
   markStreamingSessionSettled,
+  markPaymentSettling,
+  recordPlatformFeeLedgerEntry,
+  settlePaymentRecord,
   type SubgateDatabase,
 } from "@subgate/db";
 import type { X402PaymentPayload, X402SettlementResponse } from "@subgate/types";
@@ -59,6 +63,9 @@ const buildStreamingSettlement = (
 
 export const createStreamingWorkerRepository = (
   db: SubgateDatabase,
+  options: {
+    platformFeePercent: number;
+  },
 ): StreamingWorkerRepository => {
   const access = createAccessService(db);
 
@@ -72,16 +79,36 @@ export const createStreamingWorkerRepository = (
     async recordSettlement(input) {
       const paymentPayload = buildStreamingPaymentPayload(input);
       const settlementResponse = buildStreamingSettlement(input);
-
-      await createPaymentRecord(db, {
+      const pendingPayment = await createPendingPaymentRecord(db, {
         contentId: input.session.contentId,
-        accessGrantId: input.session.accessGrantId,
         payerAddress: input.session.payerAddress,
         paymentIdentifier: `stream:${input.session.id}:${input.settledAt.toISOString()}`,
         paymentPayload,
-        settlementResponse,
         amountUsdc: input.amountUsdc,
         paymentType: "per_second",
+        platformFeePercent: options.platformFeePercent,
+      });
+
+      if (!pendingPayment.created) {
+        return;
+      }
+
+      await markPaymentSettling(db, pendingPayment.payment.id);
+      const payment = await settlePaymentRecord(db, pendingPayment.payment.id, {
+        accessGrantId: input.session.accessGrantId,
+        payerAddress: input.session.payerAddress,
+        settlementResponse,
+        settledAt: input.settledAt,
+      });
+      const content = await getContentById(db, input.session.contentId);
+
+      if (!content) {
+        throw new Error("Streaming settlement content record is missing.");
+      }
+
+      await recordPlatformFeeLedgerEntry(db, {
+        payment,
+        creatorId: content.creatorId,
       });
       await markStreamingSessionSettled(
         db,

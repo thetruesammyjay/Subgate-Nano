@@ -52,6 +52,8 @@ export const creatorStatsSchema = z.object({
   paymentCount: z.number().int().nonnegative(),
   settledPaymentCount: z.number().int().nonnegative(),
   revenueUsdc: z.number().nonnegative(),
+  grossRevenueUsdc: z.number().nonnegative(),
+  platformFeeUsdc: z.number().nonnegative(),
 });
 
 export type CreatorStats = z.infer<typeof creatorStatsSchema>;
@@ -63,6 +65,8 @@ export const creatorPaymentSchema = z.object({
   contentSlug: z.string().min(1),
   payerAddress: z.string().min(3).max(255),
   amountUsdc: z.number().nonnegative(),
+  platformFeeUsdc: z.number().nonnegative(),
+  creatorNetUsdc: z.number().nonnegative(),
   paymentType: z.string().min(1),
   status: z.string().min(1),
   gatewayTransactionId: z.string().nullable(),

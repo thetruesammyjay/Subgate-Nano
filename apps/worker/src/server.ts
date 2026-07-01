@@ -7,7 +7,9 @@ const env = loadWorkerEnv();
 const pool = createDbPool(env.DATABASE_URL);
 const db = createDatabase(pool);
 const worker = new StreamingWorker({
-  repository: createStreamingWorkerRepository(db),
+  repository: createStreamingWorkerRepository(db, {
+    platformFeePercent: env.PLATFORM_FEE_PERCENT,
+  }),
   batchThresholdUsdc: env.STREAMING_BATCH_THRESHOLD_USDC,
   sessionLimit: env.WORKER_STREAMING_SESSION_LIMIT,
 });

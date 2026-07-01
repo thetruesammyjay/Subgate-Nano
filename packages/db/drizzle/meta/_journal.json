@@ -43,6 +43,13 @@
       "when": 1782920383058,
       "tag": "0005_mean_silver_surfer",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1782937544103,
+      "tag": "0006_open_pixie",
+      "breakpoints": true
     }
   ]
 }

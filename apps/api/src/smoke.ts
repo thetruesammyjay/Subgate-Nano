@@ -1,4 +1,9 @@
-import { createDatabase, createDbPool, seedDemoData } from "@subgate/db";
+import {
+  createDatabase,
+  createDbPool,
+  findPlatformFeeLedgerEntryByPaymentId,
+  seedDemoData,
+} from "@subgate/db";
 import {
   PAYMENT_REQUIRED_HEADER,
   PAYMENT_RESPONSE_HEADER,
@@ -39,6 +44,7 @@ const buildSignedPaymentPayload = (
     payload: {
       authorization: "smoke-test-signature",
       source: "subgate-api-smoke",
+      nonce: `smoke-${Date.now()}`,
     },
   };
 };
@@ -231,6 +237,41 @@ try {
       throw new Error("Unlocked response did not include grant, payment, and body.");
     }
 
+    const idempotentUnlockResponse = await app.inject({
+      method: "GET",
+      url: "/content/arc-settlement-explainer",
+      headers: {
+        [PAYMENT_SIGNATURE_HEADER]: encodeBase64Json(paymentPayload),
+      },
+    });
+
+    if (idempotentUnlockResponse.statusCode !== 200) {
+      throw new Error(
+        `Expected idempotent unlock 200, received ${idempotentUnlockResponse.statusCode}.`,
+      );
+    }
+
+    const idempotentUnlockBody = idempotentUnlockResponse.json<{
+      paymentId?: string;
+      accessGrantId?: string;
+    }>();
+
+    if (
+      idempotentUnlockBody.paymentId !== unlockBody.paymentId ||
+      idempotentUnlockBody.accessGrantId !== unlockBody.accessGrantId
+    ) {
+      throw new Error("Idempotent unlock did not reuse the settled payment record.");
+    }
+
+    const feeLedgerEntry = await findPlatformFeeLedgerEntryByPaymentId(
+      db,
+      unlockBody.paymentId,
+    );
+
+    if (!feeLedgerEntry) {
+      throw new Error("Settled payment did not create a platform fee ledger entry.");
+    }
+
     const statsResponse = await app.inject({
       method: "GET",
       url: `/creators/${seed.creatorId}/stats`,
@@ -249,12 +290,16 @@ try {
       contentCount?: number;
       settledPaymentCount?: number;
       revenueUsdc?: number;
+      grossRevenueUsdc?: number;
+      platformFeeUsdc?: number;
     }>();
 
     if (
       typeof statsBody.contentCount !== "number" ||
       typeof statsBody.settledPaymentCount !== "number" ||
-      typeof statsBody.revenueUsdc !== "number"
+      typeof statsBody.revenueUsdc !== "number" ||
+      typeof statsBody.grossRevenueUsdc !== "number" ||
+      typeof statsBody.platformFeeUsdc !== "number"
     ) {
       throw new Error("Creator stats did not include content and revenue totals.");
     }
@@ -273,10 +318,26 @@ try {
       );
     }
 
-    const paymentsBody = paymentsResponse.json<Array<{ paymentType?: string }>>();
+    const paymentsBody = paymentsResponse.json<
+      Array<{
+        paymentType?: string;
+        platformFeeUsdc?: number;
+        creatorNetUsdc?: number;
+      }>
+    >();
 
     if (!Array.isArray(paymentsBody) || paymentsBody.length === 0) {
       throw new Error("Creator payments did not include the settled smoke payment.");
+    }
+
+    if (
+      !paymentsBody.some(
+        (payment) =>
+          typeof payment.platformFeeUsdc === "number" &&
+          typeof payment.creatorNetUsdc === "number",
+      )
+    ) {
+      throw new Error("Creator payments did not include fee and net amounts.");
     }
 
     const performanceResponse = await app.inject({
