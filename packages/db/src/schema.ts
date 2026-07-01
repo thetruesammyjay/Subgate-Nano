@@ -1,5 +1,6 @@
 import {
   boolean,
+  jsonb,
   numeric,
   pgTable,
   text,
@@ -104,6 +105,108 @@ export const accessGrants = pgTable("access_grants", {
   revokedAt: timestamp("revoked_at", { withTimezone: true }),
   isActive: boolean("is_active").default(true).notNull(),
 });
+
+export const integrationSources = pgTable(
+  "integration_sources",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    creatorId: uuid("creator_id")
+      .notNull()
+      .references(() => creators.id, { onDelete: "cascade" }),
+    platform: varchar("platform", { length: 64 }).notNull(),
+    externalSourceId: varchar("external_source_id", { length: 255 }).notNull(),
+    name: varchar("name", { length: 160 }).notNull(),
+    baseUrl: varchar("base_url", { length: 512 }),
+    metadata: jsonb("metadata").$type<Record<string, unknown>>().default({}).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    sourceUniqueIdx: uniqueIndex("integration_sources_unique_idx").on(
+      table.creatorId,
+      table.platform,
+      table.externalSourceId,
+    ),
+  }),
+);
+
+export const externalContentMappings = pgTable(
+  "external_content_mappings",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    integrationSourceId: uuid("integration_source_id")
+      .notNull()
+      .references(() => integrationSources.id, { onDelete: "cascade" }),
+    contentId: uuid("content_id")
+      .notNull()
+      .references(() => contentItems.id, { onDelete: "cascade" }),
+    platform: varchar("platform", { length: 64 }).notNull(),
+    externalId: varchar("external_id", { length: 255 }).notNull(),
+    externalType: varchar("external_type", { length: 64 }).notNull(),
+    sourceUrl: varchar("source_url", { length: 512 }),
+    metadata: jsonb("metadata").$type<Record<string, unknown>>().default({}).notNull(),
+    lastSyncedAt: timestamp("last_synced_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    externalContentUniqueIdx: uniqueIndex(
+      "external_content_mappings_unique_idx",
+    ).on(table.integrationSourceId, table.externalId),
+  }),
+);
+
+export const externalAccessRules = pgTable(
+  "external_access_rules",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    integrationSourceId: uuid("integration_source_id")
+      .notNull()
+      .references(() => integrationSources.id, { onDelete: "cascade" }),
+    contentMappingId: uuid("content_mapping_id").references(
+      () => externalContentMappings.id,
+      { onDelete: "cascade" },
+    ),
+    platform: varchar("platform", { length: 64 }).notNull(),
+    externalId: varchar("external_id", { length: 255 }).notNull(),
+    externalType: varchar("external_type", { length: 64 }).notNull(),
+    name: varchar("name", { length: 160 }).notNull(),
+    ruleType: varchar("rule_type", { length: 64 }).notNull(),
+    pricingType: varchar("pricing_type", { length: 32 }),
+    priceUsdc: numeric("price_usdc", { precision: 18, scale: 6 }),
+    ratePerSecondUsdc: numeric("rate_per_second_usdc", {
+      precision: 18,
+      scale: 6,
+    }),
+    durationSeconds: numeric("duration_seconds", { precision: 18, scale: 0 }),
+    requiredGroups: jsonb("required_groups").$type<string[]>().default([]).notNull(),
+    metadata: jsonb("metadata").$type<Record<string, unknown>>().default({}).notNull(),
+    isActive: boolean("is_active").default(true).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    externalRuleUniqueIdx: uniqueIndex("external_access_rules_unique_idx").on(
+      table.integrationSourceId,
+      table.externalType,
+      table.externalId,
+    ),
+  }),
+);
 
 export const payments = pgTable(
   "payments",

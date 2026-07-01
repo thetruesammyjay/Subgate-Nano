@@ -3,6 +3,7 @@ export * from "./client.js";
 export * from "./content.js";
 export * from "./creators.js";
 export * from "./env.js";
+export * from "./integrations.js";
 export * from "./payments.js";
 export * from "./seed.js";
 export * from "./schema.js";

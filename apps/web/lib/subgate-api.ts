@@ -28,8 +28,55 @@ export type DashboardState = {
   apiUrl: string;
   creators: Creator[];
   catalog: ContentCatalogItem[];
+  integrationSources: IntegrationSourceRecord[];
+  externalContentMappings: ExternalContentMappingRecord[];
+  externalAccessRules: ExternalAccessRuleRecord[];
   isConfigured: boolean;
   error: string | null;
+};
+
+export type IntegrationSourceRecord = {
+  id: string;
+  creatorId: string;
+  platform: string;
+  externalSourceId: string;
+  name: string;
+  baseUrl: string | null;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type ExternalContentMappingRecord = {
+  id: string;
+  integrationSourceId: string;
+  contentId: string;
+  platform: string;
+  externalId: string;
+  externalType: string;
+  sourceUrl: string | null;
+  metadata: Record<string, unknown>;
+  lastSyncedAt: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type ExternalAccessRuleRecord = {
+  id: string;
+  integrationSourceId: string;
+  contentMappingId: string | null;
+  contentId: string | null;
+  platform: string;
+  externalId: string;
+  externalType: string;
+  name: string;
+  ruleType: string;
+  requiredGroups: string[];
+  pricing: PricingQuote["pricing"] | null;
+  metadata: Record<string, unknown>;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
 };
 
 export type ContentPageState = CatalogContentState & {
@@ -213,15 +260,29 @@ export const fetchDashboardState = async (): Promise<DashboardState> => {
   const isConfigured = getInternalServiceSecret().length > 0;
 
   try {
-    const [creators, catalog] = await Promise.all([
+    const [
+      creators,
+      catalog,
+      integrationSources,
+      externalContentMappings,
+      externalAccessRules,
+    ] = await Promise.all([
       fetchInternalJson<Creator[]>(`${apiUrl}/creators`),
       fetchJson<ContentCatalogItem[]>(`${apiUrl}/catalog`),
+      fetchInternalJson<IntegrationSourceRecord[]>(`${apiUrl}/integrations/sources`),
+      fetchInternalJson<ExternalContentMappingRecord[]>(
+        `${apiUrl}/integrations/mappings`,
+      ),
+      fetchInternalJson<ExternalAccessRuleRecord[]>(`${apiUrl}/integrations/rules`),
     ]);
 
     return {
       apiUrl,
       creators,
       catalog,
+      integrationSources,
+      externalContentMappings,
+      externalAccessRules,
       isConfigured,
       error: null,
     };
@@ -230,6 +291,9 @@ export const fetchDashboardState = async (): Promise<DashboardState> => {
       apiUrl,
       creators: [],
       catalog: [],
+      integrationSources: [],
+      externalContentMappings: [],
+      externalAccessRules: [],
       isConfigured,
       error:
         error instanceof Error

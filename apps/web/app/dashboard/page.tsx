@@ -1,4 +1,4 @@
-import { FileText, LockKeyhole, RadioTower, ShieldCheck } from "lucide-react";
+import { FileText, LockKeyhole, RadioTower, Rows3, ShieldCheck } from "lucide-react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { FloatingIcons } from "../../components/floating-icons";
@@ -29,6 +29,29 @@ export default async function DashboardPage() {
 
   const state = await fetchDashboardState();
   const creator = session.creator;
+  const discourseMappings = state.externalContentMappings.filter(
+    (mapping) => mapping.platform === "discourse",
+  );
+  const rulesByContentId = new Map(
+    state.externalAccessRules.reduce<Array<[string, typeof state.externalAccessRules]>>(
+      (entries, rule) => {
+        if (!rule.contentId) {
+          return entries;
+        }
+
+        const existing = entries.find(([contentId]) => contentId === rule.contentId);
+
+        if (existing) {
+          existing[1].push(rule);
+        } else {
+          entries.push([rule.contentId, [rule]]);
+        }
+
+        return entries;
+      },
+      [],
+    ),
+  );
 
   return (
     <main id="top">
@@ -63,8 +86,8 @@ export default async function DashboardPage() {
             <strong>{state.catalog.length}</strong>
           </div>
           <div>
-            <span>Secret</span>
-            <strong>{state.isConfigured ? "SET" : "MISSING"}</strong>
+            <span>Rules</span>
+            <strong>{state.externalAccessRules.length}</strong>
           </div>
         </div>
       </section>
@@ -113,6 +136,54 @@ export default async function DashboardPage() {
             </div>
           )}
         </aside>
+      </section>
+
+      <section className="section-shell dashboard-integration-panel">
+        <div className="dashboard-panel-heading">
+          <span>
+            <Rows3 aria-hidden="true" size={16} /> Imported Discourse Rules
+          </span>
+          <strong>{discourseMappings.length} TOPICS</strong>
+        </div>
+
+        {discourseMappings.length > 0 ? (
+          discourseMappings.map((mapping) => {
+            const content = state.catalog.find((item) => item.id === mapping.contentId);
+            const rules = rulesByContentId.get(mapping.contentId) ?? [];
+
+            return (
+              <article className="integration-rule-card" key={mapping.id}>
+                <div>
+                  <span>{mapping.externalType} / {mapping.externalId}</span>
+                  <strong>{content?.title ?? "Imported Discourse topic"}</strong>
+                  <small>
+                    Last synced {new Date(mapping.lastSyncedAt).toLocaleString()}
+                  </small>
+                </div>
+                <div className="integration-rule-list">
+                  {rules.map((rule) => (
+                    <p key={rule.id}>
+                      <span>{rule.externalType}</span>
+                      {rule.name} / {rule.ruleType}
+                      {rule.requiredGroups.length > 0
+                        ? ` / groups: ${rule.requiredGroups.join(", ")}`
+                        : ""}
+                    </p>
+                  ))}
+                </div>
+              </article>
+            );
+          })
+        ) : (
+          <div className="empty-state">
+            <span>NO DISCOURSE IMPORTS</span>
+            <strong>Send a Discourse topic webhook to the sidecar.</strong>
+            <p>
+              Imported topics, category rules, and group rules will appear here
+              after `/webhooks/discourse/topic` syncs.
+            </p>
+          </div>
+        )}
       </section>
 
       <section className="section-shell dashboard-guardrails">

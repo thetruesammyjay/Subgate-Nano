@@ -13,6 +13,7 @@ const env: SidecarEnv = {
 };
 
 const synced: unknown[] = [];
+const persistedMappings: unknown[] = [];
 const syncedCount = () => synced.length;
 const app = await buildSidecarApp({
   env,
@@ -30,6 +31,18 @@ const app = await buildSidecarApp({
         pricing: input.pricing,
         isActive: input.isActive ?? true,
         createdAt: new Date().toISOString(),
+      };
+    },
+    async syncIntegrationMapping(input) {
+      persistedMappings.push(input);
+
+      return {
+        source: input.source,
+        contentMapping: {
+          contentId: input.content.id,
+          externalId: input.externalContent.externalId,
+        },
+        accessRules: input.accessRules,
       };
     },
   },
@@ -133,6 +146,10 @@ try {
 
   if (syncedCount() !== 2) {
     throw new Error("Expected Ghost and Discourse webhooks to sync two content items.");
+  }
+
+  if (persistedMappings.length !== 1) {
+    throw new Error("Expected Discourse webhook to persist one integration mapping.");
   }
 
   console.log(

@@ -11,7 +11,44 @@ import { SubgateClient } from "./subgate-client.js";
 
 export type BuildSidecarAppOptions = {
   env: SidecarEnv;
-  subgateClient?: Pick<SubgateClient, "syncContent">;
+  subgateClient?: Pick<SubgateClient, "syncContent"> &
+    Partial<Pick<SubgateClient, "syncIntegrationMapping">>;
+};
+
+const readRecord = (value: unknown): Record<string, unknown> | null => {
+  return typeof value === "object" && value !== null
+    ? (value as Record<string, unknown>)
+    : null;
+};
+
+const readString = (value: unknown): string | null => {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+};
+
+const getDiscourseSource = (
+  payload: unknown,
+  creatorId: string,
+): {
+  creatorId: string;
+  platform: string;
+  externalSourceId: string;
+  name: string;
+  baseUrl?: string | null;
+  metadata?: Record<string, unknown>;
+} => {
+  const root = readRecord(payload);
+  const baseUrl = readString(root?.base_url) ?? readString(root?.discourse_url);
+
+  return {
+    creatorId,
+    platform: "discourse",
+    externalSourceId: baseUrl ?? "default-discourse",
+    name: baseUrl ? new URL(baseUrl).hostname : "Discourse",
+    baseUrl,
+    metadata: {
+      adapter: "discourse",
+    },
+  };
 };
 
 export const buildSidecarApp = async ({
@@ -97,6 +134,14 @@ export const buildSidecarApp = async ({
     }
 
     const content = await client.syncContent(toCreateContentInput(mapping.content));
+    const persistedMapping = client.syncIntegrationMapping
+      ? await client.syncIntegrationMapping({
+          source: getDiscourseSource(request.body, env.DEFAULT_CREATOR_ID),
+          content,
+          externalContent: mapping.content,
+          accessRules: mapping.accessRules,
+        })
+      : null;
 
     return reply.code(202).send({
       status: "synced",
@@ -104,6 +149,7 @@ export const buildSidecarApp = async ({
       externalId: mapping.content.externalId,
       content,
       accessRules: mapping.accessRules,
+      persistedMapping,
     });
   });
 
