@@ -59,6 +59,25 @@ importers:
         specifier: ^4.19.2
         version: 4.22.4
 
+  apps/bot-telegram:
+    dependencies:
+      '@subgate/types':
+        specifier: workspace:*
+        version: link:../../packages/types
+      fastify:
+        specifier: ^5.1.0
+        version: 5.9.0
+      zod:
+        specifier: ^3.23.8
+        version: 3.25.76
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.1
+        version: 22.20.0
+      tsx:
+        specifier: ^4.19.2
+        version: 4.22.4
+
   apps/sidecar:
     dependencies:
       '@subgate/integrations':

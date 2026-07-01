@@ -7,12 +7,17 @@ import {
   findPaymentByIdentifier,
   getCreatorBySessionToken,
   getCreatorById,
+  getCreatorStats,
   getContentById,
   getContentBySlug,
+  listExternalAccessRules,
+  listExternalContentMappings,
+  listIntegrationSources,
   listCreators,
   listActiveCatalogItems,
   revokeCreatorSession,
   syncContentBySlug,
+  syncExternalIntegrationMapping,
   type SubgateDatabase,
 } from "@subgate/db";
 import { quotePricing, serializePricingForStorage } from "@subgate/pricing";
@@ -33,6 +38,7 @@ import {
   contentUnlockSchema,
   createContentInputSchema,
   payerAddressSchema,
+  pricingModelSchema,
 } from "@subgate/types";
 import type { FastifyInstance } from "fastify";
 import type { FastifyReply, FastifyRequest } from "fastify";
@@ -45,6 +51,31 @@ export type RegisterRoutesOptions = {
   facilitator?: X402SettlementService;
 };
 
+const readPayloadString = (
+  payload: Record<string, unknown>,
+  key: string,
+): string | null => {
+  const value = payload[key];
+
+  return typeof value === "string" && value.trim() ? value : null;
+};
+
+const createMockSettlementService = (): X402SettlementService => {
+  return {
+    async settle(paymentPayload) {
+      return {
+        success: true,
+        transaction: `local-x402-${getPaymentPayloadIdentifier(paymentPayload).slice(0, 16)}`,
+        network: paymentPayload.accepted.network,
+        payer:
+          readPayloadString(paymentPayload.payload, "payer") ??
+          "0x2222222222222222222222222222222222222222",
+        message: "Local mock settlement accepted.",
+      };
+    },
+  };
+};
+
 export const registerRoutes = async (
   app: FastifyInstance,
   db: SubgateDatabase,
@@ -54,9 +85,11 @@ export const registerRoutes = async (
   const accessService = createAccessService(db);
   const facilitator =
     options.facilitator ??
-    new X402FacilitatorClient({
-      facilitatorUrl: env.X402_FACILITATOR_URL,
-    });
+    (env.X402_FACILITATOR_MODE === "mock"
+      ? createMockSettlementService()
+      : new X402FacilitatorClient({
+          facilitatorUrl: env.X402_FACILITATOR_URL,
+        }));
   const requireInternalService = async (
     request: FastifyRequest,
     reply: FastifyReply,
@@ -188,6 +221,126 @@ export const registerRoutes = async (
     },
     async () => {
       return listCreators(db);
+    },
+  );
+
+  app.get(
+    "/creators/:creatorId/stats",
+    {
+      preHandler: requireInternalService,
+    },
+    async (request, reply) => {
+      const params = request.params as { creatorId: string };
+      const parsed = z.string().uuid().safeParse(params.creatorId);
+
+      if (!parsed.success) {
+        return reply.code(400).send({
+          message: "A valid creator id is required.",
+        });
+      }
+
+      const creator = await getCreatorById(db, parsed.data);
+
+      if (!creator) {
+        return reply.code(404).send({
+          message: "Creator not found.",
+        });
+      }
+
+      return getCreatorStats(db, parsed.data);
+    },
+  );
+
+  app.get(
+    "/integrations/sources",
+    {
+      preHandler: requireInternalService,
+    },
+    async () => {
+      return listIntegrationSources(db);
+    },
+  );
+
+  app.get(
+    "/integrations/mappings",
+    {
+      preHandler: requireInternalService,
+    },
+    async (request) => {
+      const query = request.query as {
+        platform?: string;
+        externalId?: string;
+        contentId?: string;
+      };
+
+      return listExternalContentMappings(db, query);
+    },
+  );
+
+  app.get(
+    "/integrations/rules",
+    {
+      preHandler: requireInternalService,
+    },
+    async (request) => {
+      const query = request.query as {
+        platform?: string;
+        externalId?: string;
+        contentId?: string;
+      };
+
+      return listExternalAccessRules(db, query);
+    },
+  );
+
+  app.post(
+    "/integrations/mappings/sync",
+    {
+      preHandler: requireInternalService,
+    },
+    async (request, reply) => {
+      const parsed = z
+        .object({
+          source: z.object({
+            creatorId: z.string().uuid(),
+            platform: z.string().min(1),
+            externalSourceId: z.string().min(1),
+            name: z.string().min(1),
+            baseUrl: z.string().url().nullable().optional(),
+            metadata: z.record(z.unknown()).optional(),
+          }),
+          contentMapping: z.object({
+            contentId: z.string().uuid(),
+            platform: z.string().min(1),
+            externalId: z.string().min(1),
+            externalType: z.string().min(1),
+            sourceUrl: z.string().url().nullable().optional(),
+            metadata: z.record(z.unknown()).optional(),
+          }),
+          accessRules: z.array(
+            z.object({
+              platform: z.string().min(1),
+              externalId: z.string().min(1),
+              externalType: z.string().min(1),
+              name: z.string().min(1),
+              ruleType: z.string().min(1),
+              pricing: pricingModelSchema.optional(),
+              requiredGroups: z.array(z.string().min(1)).optional(),
+              metadata: z.record(z.unknown()).optional(),
+              isActive: z.boolean().optional(),
+            }),
+          ),
+        })
+        .safeParse(request.body);
+
+      if (!parsed.success) {
+        return reply.code(400).send({
+          message: "Invalid integration mapping sync payload.",
+          issues: parsed.error.issues,
+        });
+      }
+
+      return syncExternalIntegrationMapping(db, parsed.data);
     },
   );
 

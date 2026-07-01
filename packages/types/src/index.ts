@@ -45,6 +45,17 @@ export const creatorSchema = z.object({
 
 export type Creator = z.infer<typeof creatorSchema>;
 
+export const creatorStatsSchema = z.object({
+  creatorId: z.string().uuid(),
+  contentCount: z.number().int().nonnegative(),
+  activeContentCount: z.number().int().nonnegative(),
+  paymentCount: z.number().int().nonnegative(),
+  settledPaymentCount: z.number().int().nonnegative(),
+  revenueUsdc: z.number().nonnegative(),
+});
+
+export type CreatorStats = z.infer<typeof creatorStatsSchema>;
+
 export const contentUnlockSchema = z.object({
   id: z.string().uuid(),
   creatorId: z.string().uuid(),
