@@ -1,3 +1,5 @@
+import { readFile } from "node:fs/promises";
+import { resolve } from "node:path";
 import { createAccessService } from "@subgate/access";
 import {
   consumeCreatorMagicLinkToken,
@@ -6,6 +8,7 @@ import {
   createPendingPaymentRecord,
   findPaymentByIdentifier,
   failPaymentRecord,
+  getPaymentPipelineDatabaseDiagnostics,
   getCreatorBySessionToken,
   getCreatorById,
   getCreatorStats,
@@ -48,8 +51,11 @@ import {
   contentUnlockSchema,
   createContentInputSchema,
   payerAddressSchema,
+  paymentPipelineDiagnosticsSchema,
   pricingModelSchema,
   startStreamingSessionInputSchema,
+  workerHeartbeatSchema,
+  type WorkerHeartbeat,
 } from "@subgate/types";
 import type { FastifyInstance } from "fastify";
 import type { FastifyReply, FastifyRequest } from "fastify";
@@ -89,6 +95,64 @@ const createMockSettlementService = (): X402SettlementService => {
 
 const paymentIdentifierPrefix = (paymentIdentifier: string) => {
   return paymentIdentifier.slice(0, 16);
+};
+
+const readWorkerHeartbeat = async (
+  healthFile: string | undefined,
+): Promise<{
+  heartbeat: WorkerHeartbeat | null;
+  healthFile: string | null;
+  message: string | null;
+}> => {
+  if (!healthFile) {
+    return {
+      heartbeat: null,
+      healthFile: null,
+      message: "WORKER_HEALTH_FILE is not configured.",
+    };
+  }
+
+  const resolvedHealthFile = resolve(healthFile);
+
+  try {
+    const raw = await readFile(resolvedHealthFile, "utf8");
+    const heartbeat = workerHeartbeatSchema.parse(JSON.parse(raw));
+
+    return {
+      heartbeat,
+      healthFile: resolvedHealthFile,
+      message: null,
+    };
+  } catch (error) {
+    return {
+      heartbeat: null,
+      healthFile: resolvedHealthFile,
+      message:
+        error instanceof Error
+          ? error.message
+          : "Unable to read worker heartbeat.",
+    };
+  }
+};
+
+const mapWorkerStatus = (
+  heartbeat: WorkerHeartbeat | null,
+  heartbeatAgeSeconds: number | null,
+  staleSeconds: number,
+) => {
+  if (!heartbeat) {
+    return "unknown";
+  }
+
+  if (heartbeatAgeSeconds !== null && heartbeatAgeSeconds > staleSeconds) {
+    return "stale";
+  }
+
+  if (heartbeat.status === "starting") {
+    return "degraded";
+  }
+
+  return heartbeat.status;
 };
 
 export const registerRoutes = async (
@@ -137,6 +201,59 @@ export const registerRoutes = async (
   app.get("/catalog", async () => {
     return listActiveCatalogItems(db);
   });
+
+  app.get(
+    "/diagnostics/payment-pipeline",
+    {
+      preHandler: requireInternalService,
+    },
+    async () => {
+      const [databaseDiagnostics, workerHealth] = await Promise.all([
+        getPaymentPipelineDatabaseDiagnostics(db),
+        readWorkerHeartbeat(env.WORKER_HEALTH_FILE),
+      ]);
+      const generatedAt = new Date();
+      const heartbeatAgeSeconds = workerHealth.heartbeat
+        ? Math.max(
+            0,
+            Math.round(
+              (generatedAt.getTime() -
+                new Date(workerHealth.heartbeat.timestamp).getTime()) /
+                1000,
+            ),
+          )
+        : null;
+      const workerStatus = mapWorkerStatus(
+        workerHealth.heartbeat,
+        heartbeatAgeSeconds,
+        env.WORKER_HEALTH_STALE_SECONDS,
+      );
+      const staleMessage =
+        workerStatus === "stale"
+          ? `Worker heartbeat is older than ${env.WORKER_HEALTH_STALE_SECONDS} seconds.`
+          : null;
+
+      return paymentPipelineDiagnosticsSchema.parse({
+        generatedAt: generatedAt.toISOString(),
+        api: {
+          status: "ok",
+          facilitatorMode: env.X402_FACILITATOR_MODE,
+          x402Network: env.X402_NETWORK,
+          platformFeePercent: env.PLATFORM_FEE_PERCENT,
+        },
+        payments: databaseDiagnostics.payments,
+        platformFees: databaseDiagnostics.platformFees,
+        streaming: databaseDiagnostics.streaming,
+        worker: {
+          status: workerStatus,
+          heartbeat: workerHealth.heartbeat,
+          heartbeatAgeSeconds,
+          healthFile: workerHealth.healthFile,
+          message: workerHealth.message ?? staleMessage,
+        },
+      });
+    },
+  );
 
   app.post("/auth/creator/magic-link", async (request, reply) => {
     const parsed = z

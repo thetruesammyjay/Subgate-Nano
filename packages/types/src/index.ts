@@ -91,6 +91,81 @@ export type CreatorContentPerformance = z.infer<
   typeof creatorContentPerformanceSchema
 >;
 
+export const pipelineCountSchema = z.object({
+  total: z.number().int().nonnegative(),
+  pending: z.number().int().nonnegative(),
+  settling: z.number().int().nonnegative(),
+  settled: z.number().int().nonnegative(),
+  failed: z.number().int().nonnegative(),
+});
+
+export type PipelineCount = z.infer<typeof pipelineCountSchema>;
+
+export const streamingSessionCountSchema = z.object({
+  total: z.number().int().nonnegative(),
+  active: z.number().int().nonnegative(),
+  stopping: z.number().int().nonnegative(),
+  paused: z.number().int().nonnegative(),
+  closed: z.number().int().nonnegative(),
+});
+
+export type StreamingSessionCount = z.infer<typeof streamingSessionCountSchema>;
+
+export const workerHeartbeatSchema = z.object({
+  service: z.literal("worker"),
+  status: z.enum(["starting", "ok", "degraded", "error", "stopped"]),
+  timestamp: z.string().datetime(),
+  startedAt: z.string().datetime(),
+  lastTickAt: z.string().datetime().nullable(),
+  lastErrorAt: z.string().datetime().nullable(),
+  lastError: z.string().nullable(),
+  tickCount: z.number().int().nonnegative(),
+  lastTick: z
+    .object({
+      scanned: z.number().int().nonnegative(),
+      ticked: z.number().int().nonnegative(),
+      settled: z.number().int().nonnegative(),
+      closed: z.number().int().nonnegative(),
+    })
+    .nullable(),
+  pollIntervalMs: z.number().int().positive(),
+  batchThresholdUsdc: z.number().positive(),
+  sessionLimit: z.number().int().positive(),
+});
+
+export type WorkerHeartbeat = z.infer<typeof workerHeartbeatSchema>;
+
+export const paymentPipelineDiagnosticsSchema = z.object({
+  generatedAt: z.string().datetime(),
+  api: z.object({
+    status: z.literal("ok"),
+    facilitatorMode: z.enum(["gateway", "mock"]),
+    x402Network: z.string().min(1),
+    platformFeePercent: z.number().min(0).max(100),
+  }),
+  payments: pipelineCountSchema,
+  platformFees: z.object({
+    posted: z.number().int().nonnegative(),
+    missingForSettledPayments: z.number().int().nonnegative(),
+    totalPlatformFeeUsdc: z.number().nonnegative(),
+  }),
+  streaming: z.object({
+    sessions: streamingSessionCountSchema,
+    pendingSettlementUsdc: z.number().nonnegative(),
+  }),
+  worker: z.object({
+    status: z.enum(["unknown", "ok", "stale", "error", "degraded", "stopped"]),
+    heartbeat: workerHeartbeatSchema.nullable(),
+    heartbeatAgeSeconds: z.number().nonnegative().nullable(),
+    healthFile: z.string().nullable(),
+    message: z.string().nullable(),
+  }),
+});
+
+export type PaymentPipelineDiagnostics = z.infer<
+  typeof paymentPipelineDiagnosticsSchema
+>;
+
 export const contentUnlockSchema = z.object({
   id: z.string().uuid(),
   creatorId: z.string().uuid(),

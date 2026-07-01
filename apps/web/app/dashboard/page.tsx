@@ -1,10 +1,12 @@
 import {
+  Activity,
   CircleDollarSign,
   FileText,
   LockKeyhole,
   RadioTower,
   ReceiptText,
   Rows3,
+  ServerCog,
   ShieldCheck,
 } from "lucide-react";
 import Link from "next/link";
@@ -36,6 +38,18 @@ const formatDate = (value: string | null) => {
   return value ? new Date(value).toLocaleString() : "Pending";
 };
 
+const formatAge = (value: number | null | undefined) => {
+  if (value === null || value === undefined) {
+    return "No heartbeat";
+  }
+
+  if (value < 60) {
+    return `${value}s ago`;
+  }
+
+  return `${Math.floor(value / 60)}m ${value % 60}s ago`;
+};
+
 const shortAddress = (value: string) => {
   return value.length > 14 ? `${value.slice(0, 8)}...${value.slice(-6)}` : value;
 };
@@ -50,6 +64,7 @@ export default async function DashboardPage() {
   const state = await fetchDashboardState();
   const creator = session.creator;
   const stats = state.creatorStats;
+  const diagnostics = state.pipelineDiagnostics;
   const performanceByContentId = new Map(
     state.contentPerformance.map((item) => [item.contentId, item]),
   );
@@ -153,6 +168,71 @@ export default async function DashboardPage() {
           <strong>{stats?.activeContentCount ?? 0}/{stats?.contentCount ?? 0}</strong>
           <p>Items available to readers, Telegram audiences, and agents.</p>
         </article>
+      </section>
+
+      <section className="section-shell dashboard-diagnostics-panel">
+        <div className="dashboard-panel-heading">
+          <span>
+            <Activity aria-hidden="true" size={16} /> Payment Pipeline
+          </span>
+          <strong>
+            {diagnostics ? diagnostics.worker.status.toUpperCase() : "UNAVAILABLE"}
+          </strong>
+        </div>
+
+        {diagnostics ? (
+          <div className="diagnostics-grid">
+            <article>
+              <CircleDollarSign aria-hidden="true" />
+              <span>Payments</span>
+              <strong>{diagnostics.payments.settled} settled</strong>
+              <p>
+                {diagnostics.payments.pending} pending /{" "}
+                {diagnostics.payments.settling} settling /{" "}
+                {diagnostics.payments.failed} failed
+              </p>
+            </article>
+            <article>
+              <ReceiptText aria-hidden="true" />
+              <span>Fee Ledger</span>
+              <strong>{diagnostics.platformFees.posted} posted</strong>
+              <p>
+                {formatUsdc(diagnostics.platformFees.totalPlatformFeeUsdc)} fees /{" "}
+                {diagnostics.platformFees.missingForSettledPayments} missing
+              </p>
+            </article>
+            <article>
+              <RadioTower aria-hidden="true" />
+              <span>Streaming</span>
+              <strong>{diagnostics.streaming.sessions.active} active</strong>
+              <p>
+                {diagnostics.streaming.sessions.stopping} stopping / pending{" "}
+                {formatUsdc(diagnostics.streaming.pendingSettlementUsdc)}
+              </p>
+            </article>
+            <article>
+              <ServerCog aria-hidden="true" />
+              <span>Worker</span>
+              <strong>{diagnostics.worker.status}</strong>
+              <p>
+                {formatAge(diagnostics.worker.heartbeatAgeSeconds)}
+                {diagnostics.worker.heartbeat
+                  ? ` / ${diagnostics.worker.heartbeat.tickCount} ticks`
+                  : ""}
+              </p>
+            </article>
+          </div>
+        ) : (
+          <div className="empty-state">
+            <span>DIAGNOSTICS UNAVAILABLE</span>
+            <strong>Payment pipeline status could not be loaded.</strong>
+            <p>Check the API internal diagnostics endpoint and service secret.</p>
+          </div>
+        )}
+
+        {diagnostics?.worker.message && (
+          <p className="dashboard-diagnostics-note">{diagnostics.worker.message}</p>
+        )}
       </section>
 
       <section className="section-shell dashboard-grid">

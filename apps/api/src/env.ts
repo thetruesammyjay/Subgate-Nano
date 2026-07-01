@@ -5,6 +5,11 @@ const optionalUrl = z.preprocess(
   z.string().url().optional(),
 );
 
+const optionalPath = z.preprocess(
+  (value) => (value === "" ? undefined : value),
+  z.string().min(1).optional(),
+);
+
 const apiEnvSchema = z.object({
   DATABASE_URL: z.string().url(),
   API_HOST: z.string().min(1).default("0.0.0.0"),
@@ -30,6 +35,8 @@ const apiEnvSchema = z.object({
     .default("0x0077777d7EBA4688BDeF3E311b846F25870A19B9"),
   X402_MAX_TIMEOUT_SECONDS: z.coerce.number().int().positive().default(604900),
   INTERNAL_SERVICE_SECRET: z.string().min(16),
+  WORKER_HEALTH_FILE: optionalPath,
+  WORKER_HEALTH_STALE_SECONDS: z.coerce.number().int().positive().default(30),
 });
 
 export type ApiEnv = z.infer<typeof apiEnvSchema>;

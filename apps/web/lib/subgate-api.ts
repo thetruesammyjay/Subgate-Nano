@@ -7,6 +7,7 @@ import type {
   CreatorPayment,
   CreatorStats,
   CreateContentInput,
+  PaymentPipelineDiagnostics,
   PricingQuote,
   X402PaymentRequired,
 } from "@subgate/types";
@@ -37,6 +38,7 @@ export type DashboardState = {
   integrationSources: IntegrationSourceRecord[];
   externalContentMappings: ExternalContentMappingRecord[];
   externalAccessRules: ExternalAccessRuleRecord[];
+  pipelineDiagnostics: PaymentPipelineDiagnostics | null;
   isConfigured: boolean;
   error: string | null;
 };
@@ -272,6 +274,7 @@ export const fetchDashboardState = async (): Promise<DashboardState> => {
       integrationSources,
       externalContentMappings,
       externalAccessRules,
+      pipelineDiagnostics,
     ] = await Promise.all([
       fetchInternalJson<Creator[]>(`${apiUrl}/creators`),
       fetchJson<ContentCatalogItem[]>(`${apiUrl}/catalog`),
@@ -280,6 +283,9 @@ export const fetchDashboardState = async (): Promise<DashboardState> => {
         `${apiUrl}/integrations/mappings`,
       ),
       fetchInternalJson<ExternalAccessRuleRecord[]>(`${apiUrl}/integrations/rules`),
+      fetchInternalJson<PaymentPipelineDiagnostics>(
+        `${apiUrl}/diagnostics/payment-pipeline`,
+      ),
     ]);
     const primaryCreator = creators[0] ?? null;
     const [creatorStatsResult, creatorPaymentsResult, contentPerformanceResult] =
@@ -307,6 +313,7 @@ export const fetchDashboardState = async (): Promise<DashboardState> => {
       integrationSources,
       externalContentMappings,
       externalAccessRules,
+      pipelineDiagnostics,
       isConfigured,
       error: null,
     };
@@ -321,6 +328,7 @@ export const fetchDashboardState = async (): Promise<DashboardState> => {
       integrationSources: [],
       externalContentMappings: [],
       externalAccessRules: [],
+      pipelineDiagnostics: null,
       isConfigured,
       error:
         error instanceof Error

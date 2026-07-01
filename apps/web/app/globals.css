@@ -882,6 +882,66 @@ h2 {
   margin: 16px 0 0;
 }
 
+.dashboard-diagnostics-panel {
+  padding-top: 0;
+}
+
+.diagnostics-grid {
+  display: grid;
+  gap: 1px;
+  grid-template-columns: repeat(4, 1fr);
+}
+
+.diagnostics-grid article {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  min-height: 190px;
+  padding: 22px;
+}
+
+.diagnostics-grid svg {
+  color: var(--accent);
+  height: 24px;
+  margin-bottom: 34px;
+  width: 24px;
+}
+
+.diagnostics-grid span {
+  color: var(--text-secondary);
+  display: block;
+  font-family: var(--font-space-mono), monospace;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.diagnostics-grid strong {
+  display: block;
+  font-family: var(--font-space-mono), monospace;
+  font-size: 20px;
+  font-weight: 500;
+  margin-top: 8px;
+  text-transform: uppercase;
+}
+
+.diagnostics-grid p,
+.dashboard-diagnostics-note {
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.diagnostics-grid p {
+  margin: 12px 0 0;
+}
+
+.dashboard-diagnostics-note {
+  background: var(--accent-subtle);
+  font-family: var(--font-space-mono), monospace;
+  font-size: 12px;
+  margin: 14px 0 0;
+  padding: 12px;
+}
+
 .dashboard-grid {
   align-items: flex-start;
   display: grid;
@@ -1409,6 +1469,7 @@ h2 {
   .dashboard-hero,
   .dashboard-grid,
   .dashboard-revenue-grid,
+  .diagnostics-grid,
   .payments-table article,
   .integration-rule-card,
   .login-shell,

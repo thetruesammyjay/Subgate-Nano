@@ -20,6 +20,8 @@ coverage/
 .env.development.local
 .env.test.local
 .env.production.local
+.subgate-worker-health.json
+apps/worker/.subgate-worker-health.json
 
 # Logs
 *.log

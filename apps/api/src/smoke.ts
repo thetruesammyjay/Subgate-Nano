@@ -11,6 +11,7 @@ import {
   parsePaymentPayloadHeader,
 } from "@subgate/x402";
 import type {
+  PaymentPipelineDiagnostics,
   StreamingSession,
   X402PaymentPayload,
   X402PaymentRequired,
@@ -419,6 +420,32 @@ try {
 
     if (stoppedStreamSession.status !== "stopping") {
       throw new Error("Stream stop did not mark the session for worker finalization.");
+    }
+
+    const diagnosticsResponse = await app.inject({
+      method: "GET",
+      url: "/diagnostics/payment-pipeline",
+      headers: {
+        "x-subgate-internal-secret": env.INTERNAL_SERVICE_SECRET,
+      },
+    });
+
+    if (diagnosticsResponse.statusCode !== 200) {
+      throw new Error(
+        `Expected diagnostics 200, received ${diagnosticsResponse.statusCode}.`,
+      );
+    }
+
+    const diagnosticsBody =
+      diagnosticsResponse.json<PaymentPipelineDiagnostics>();
+
+    if (
+      diagnosticsBody.api.status !== "ok" ||
+      diagnosticsBody.payments.settled < 1 ||
+      diagnosticsBody.platformFees.posted < 1 ||
+      diagnosticsBody.streaming.sessions.total < 1
+    ) {
+      throw new Error("Diagnostics did not include the expected pipeline state.");
     }
 
     console.log(
