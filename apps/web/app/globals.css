@@ -564,6 +564,28 @@ h2 {
   word-break: break-word;
 }
 
+.reader-payment-summary {
+  display: grid;
+  gap: 1px;
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.reader-payment-summary article {
+  background: var(--page);
+  border: 1px solid var(--border);
+  min-height: 92px;
+  padding: 14px;
+}
+
+.reader-payment-summary strong {
+  display: block;
+  font-family: var(--font-space-mono), monospace;
+  font-size: 15px;
+  font-weight: 500;
+  margin-top: 9px;
+  overflow-wrap: anywhere;
+}
+
 .mini-button {
   align-items: center;
   background: transparent;
@@ -1320,6 +1342,7 @@ h2 {
   .flow-grid,
   .content-metadata,
   .unlock-education,
+  .reader-payment-summary,
   .form-grid,
   .dashboard-guardrails,
   .roles-section {

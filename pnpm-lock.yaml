@@ -102,6 +102,9 @@ importers:
 
   apps/web:
     dependencies:
+      '@circle-fin/x402-batching':
+        specifier: ^3.2.0
+        version: 3.2.0(@x402/core@2.17.0)(viem@2.53.1(typescript@5.9.3)(zod@3.25.76))
       '@subgate/types':
         specifier: workspace:*
         version: link:../../packages/types

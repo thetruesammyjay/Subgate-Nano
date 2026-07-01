@@ -10,6 +10,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@circle-fin/x402-batching": "^3.2.0",
     "@subgate/types": "workspace:*",
     "lucide-react": "^0.468.0",
     "next": "^15.1.0",

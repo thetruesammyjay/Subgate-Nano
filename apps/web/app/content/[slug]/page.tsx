@@ -101,7 +101,7 @@ export default async function ContentPage({ params }: ContentPageProps) {
         <article>
           <KeyRound aria-hidden="true" />
           <span>2 / SIGN</span>
-          <p>A Gateway-compatible payer signs those terms outside the browser.</p>
+          <p>The connected wallet signs the Gateway authorization in the browser.</p>
         </article>
         <article>
           <RadioTower aria-hidden="true" />
