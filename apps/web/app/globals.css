@@ -670,6 +670,57 @@ h2 {
   margin-top: 14px;
 }
 
+.unlock-receipt {
+  border: 1px solid var(--border-visible);
+  margin-top: 18px;
+}
+
+.unlock-receipt > div:first-child {
+  align-items: center;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  padding: 14px;
+}
+
+.unlock-receipt > div:first-child span {
+  align-items: center;
+  color: var(--success);
+  display: inline-flex;
+  gap: 8px;
+}
+
+.unlock-receipt-grid {
+  display: grid;
+  gap: 1px;
+  grid-template-columns: repeat(2, 1fr);
+}
+
+.unlock-receipt-grid article {
+  background: var(--page);
+  min-height: 88px;
+  padding: 14px;
+}
+
+.unlock-receipt-grid article:nth-child(odd) {
+  border-right: 1px solid var(--border);
+}
+
+.unlock-receipt-grid article:nth-child(-n + 2) {
+  border-bottom: 1px solid var(--border);
+}
+
+.unlock-receipt-grid strong {
+  display: block;
+  font-family: var(--font-space-mono), monospace;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.4;
+  margin-top: 8px;
+  overflow-wrap: anywhere;
+}
+
 .unlock-education {
   display: grid;
   gap: 1px;
@@ -1385,6 +1436,7 @@ h2 {
   .content-metadata,
   .unlock-education,
   .reader-payment-summary,
+  .unlock-receipt-grid,
   .form-grid,
   .dashboard-guardrails,
   .roles-section {
@@ -1394,6 +1446,23 @@ h2 {
   .content-metadata div {
     border-bottom: 1px solid var(--border);
     border-right: 0;
+  }
+
+  .unlock-receipt > div:first-child,
+  .unlock-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .unlock-receipt-grid article,
+  .unlock-receipt-grid article:nth-child(odd),
+  .unlock-receipt-grid article:nth-child(-n + 2) {
+    border-bottom: 1px solid var(--border);
+    border-right: 0;
+  }
+
+  .unlock-receipt-grid article:last-child {
+    border-bottom: 0;
   }
 
   .content-metadata div:last-child {

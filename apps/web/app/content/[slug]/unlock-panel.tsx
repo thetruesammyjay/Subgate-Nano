@@ -4,12 +4,17 @@ import {
   CheckCircle2,
   Clipboard,
   LockKeyhole,
+  ReceiptText,
   RefreshCw,
   ShieldAlert,
   WalletCards,
 } from "lucide-react";
-import { useState, useTransition } from "react";
-import type { ContentUnlock, X402PaymentRequired } from "@subgate/types";
+import { useState } from "react";
+import type {
+  ContentUnlock,
+  X402PaymentRequired,
+  X402SettlementResponse,
+} from "@subgate/types";
 import type { UnlockProxyResponse } from "../../../lib/subgate-api";
 
 type UnlockPanelProps = {
@@ -18,7 +23,7 @@ type UnlockPanelProps = {
   initialTermsJson: string | null;
 };
 
-type UnlockStep = "terms" | "ready" | "verifying" | "unlocked" | "error";
+type UnlockStep = "terms" | "ready" | "signing" | "verifying" | "unlocked" | "error";
 
 type EthereumProvider = {
   request: (input: { method: string; params?: unknown[] }) => Promise<unknown>;
@@ -57,6 +62,10 @@ const encodeBase64Json = (value: unknown): string => {
   return btoa(JSON.stringify(value));
 };
 
+const decodeBase64Json = <T,>(value: string): T => {
+  return JSON.parse(atob(value)) as T;
+};
+
 const parseTermsJson = (value: string | null): X402PaymentRequired | null => {
   if (!value) {
     return null;
@@ -77,6 +86,42 @@ const formatAtomicUsdc = (amount: string) => {
 
 const shortAddress = (value: string) => {
   return value.length > 18 ? `${value.slice(0, 10)}...${value.slice(-8)}` : value;
+};
+
+const getRecord = (value: unknown): Record<string, unknown> | null => {
+  return typeof value === "object" && value !== null
+    ? (value as Record<string, unknown>)
+    : null;
+};
+
+const parseSettlementResponse = (
+  content: ContentUnlock,
+  paymentResponseHeader: string | null,
+): X402SettlementResponse | null => {
+  if (paymentResponseHeader) {
+    try {
+      return decodeBase64Json<X402SettlementResponse>(paymentResponseHeader);
+    } catch {
+      // Fall back to the response body below.
+    }
+  }
+
+  const record = getRecord(content.paymentResponse);
+
+  if (!record || typeof record.success !== "boolean") {
+    return null;
+  }
+
+  return {
+    success: record.success,
+    transaction: typeof record.transaction === "string" ? record.transaction : "",
+    network: typeof record.network === "string" ? record.network : "unknown",
+    payer: typeof record.payer === "string" ? record.payer : undefined,
+    errorReason:
+      typeof record.errorReason === "string" ? record.errorReason : undefined,
+    message: typeof record.message === "string" ? record.message : undefined,
+    raw: record.raw,
+  };
 };
 
 const createPaymentSignature = async (
@@ -147,11 +192,14 @@ export function UnlockPanel({
   );
   const [termsJson, setTermsJson] = useState(initialTermsJson);
   const [unlockedContent, setUnlockedContent] = useState<ContentUnlock | null>(null);
+  const [paymentReceipt, setPaymentReceipt] = useState<X402SettlementResponse | null>(
+    null,
+  );
   const [message, setMessage] = useState<string | null>(null);
   const [step, setStep] = useState<UnlockStep>(
     initialPaymentRequiredHeader ? "ready" : "terms",
   );
-  const [isPending, startTransition] = useTransition();
+  const [isWorking, setIsWorking] = useState(false);
   const paymentRequired = parseTermsJson(termsJson);
   const acceptedTerms = paymentRequired?.accepts[0] ?? null;
 
@@ -160,15 +208,40 @@ export function UnlockPanel({
       return;
     }
 
-    await navigator.clipboard.writeText(paymentRequiredHeader);
-    setMessage("PAYMENT-REQUIRED header copied.");
+    try {
+      await navigator.clipboard.writeText(paymentRequiredHeader);
+      setMessage("PAYMENT-REQUIRED header copied.");
+    } catch {
+      setMessage("Could not copy payment terms from this browser.");
+    }
   };
 
-  const refreshTerms = () => {
+  const copyReceipt = async () => {
+    if (!unlockedContent) {
+      return;
+    }
+
+    const receipt = {
+      contentId: unlockedContent.id,
+      paymentId: unlockedContent.paymentId,
+      accessGrantId: unlockedContent.accessGrantId,
+      settlement: paymentReceipt,
+    };
+
+    try {
+      await navigator.clipboard.writeText(JSON.stringify(receipt, null, 2));
+      setMessage("Receipt copied.");
+    } catch {
+      setMessage("Could not copy the receipt from this browser.");
+    }
+  };
+
+  const refreshTerms = async () => {
     setMessage(null);
     setStep("terms");
+    setIsWorking(true);
 
-    startTransition(async () => {
+    try {
       const result = await fetchUnlockTerms(slug);
 
       if (result.status === "payment_required") {
@@ -188,22 +261,36 @@ export function UnlockPanel({
 
       setStep("error");
       setMessage(result.message);
-    });
+    } catch (error) {
+      setStep("error");
+      setMessage(error instanceof Error ? error.message : "Unable to refresh payment terms.");
+    } finally {
+      setIsWorking(false);
+    }
   };
 
-  const payAndUnlock = () => {
+  const payAndUnlock = async () => {
     setMessage(null);
-    setStep("verifying");
+    setStep("signing");
+    setIsWorking(true);
 
-    startTransition(async () => {
+    try {
       let latestPaymentRequired = paymentRequired;
 
       if (!latestPaymentRequired) {
+        setStep("terms");
+        setMessage("Loading fresh payment terms.");
         const termsResult = await fetchUnlockTerms(slug);
 
         if (termsResult.status !== "payment_required") {
           if (termsResult.status === "unlocked") {
             setUnlockedContent(termsResult.content);
+            setPaymentReceipt(
+              parseSettlementResponse(
+                termsResult.content,
+                termsResult.paymentResponseHeader,
+              ),
+            );
             setStep("unlocked");
             setMessage("Content unlocked.");
             return;
@@ -222,6 +309,8 @@ export function UnlockPanel({
       let signature: string;
 
       try {
+        setStep("signing");
+        setMessage("Review and sign the x402 authorization in your wallet.");
         signature = await createPaymentSignature(latestPaymentRequired);
       } catch (error) {
         setStep("error");
@@ -233,10 +322,15 @@ export function UnlockPanel({
         return;
       }
 
+      setStep("verifying");
+      setMessage("Submitting payment for settlement.");
       const result = await submitPaymentSignature(slug, signature);
 
       if (result.status === "unlocked") {
         setUnlockedContent(result.content);
+        setPaymentReceipt(
+          parseSettlementResponse(result.content, result.paymentResponseHeader),
+        );
         setStep("unlocked");
         setMessage("Payment signed, settled, and access granted.");
         return;
@@ -252,7 +346,12 @@ export function UnlockPanel({
 
       setStep("error");
       setMessage(result.message);
-    });
+    } catch (error) {
+      setStep("error");
+      setMessage(error instanceof Error ? error.message : "Unable to complete payment.");
+    } finally {
+      setIsWorking(false);
+    }
   };
 
   return (
@@ -276,7 +375,38 @@ export function UnlockPanel({
           <span>UNLOCKED BODY</span>
           <h2>{unlockedContent.title}</h2>
           <pre>{unlockedContent.body}</pre>
-          <small>Access grant: {unlockedContent.accessGrantId}</small>
+          <div className="unlock-receipt">
+            <div>
+              <span>
+                <ReceiptText aria-hidden="true" size={16} /> Receipt
+              </span>
+              <button className="mini-button" type="button" onClick={copyReceipt}>
+                <Clipboard aria-hidden="true" size={14} /> Copy Receipt
+              </button>
+            </div>
+            <div className="unlock-receipt-grid">
+              <article>
+                <span>Payment</span>
+                <strong>{unlockedContent.paymentId}</strong>
+              </article>
+              <article>
+                <span>Access Grant</span>
+                <strong>{unlockedContent.accessGrantId}</strong>
+              </article>
+              <article>
+                <span>Transaction</span>
+                <strong>
+                  {paymentReceipt?.transaction
+                    ? shortAddress(paymentReceipt.transaction)
+                    : "Recorded"}
+                </strong>
+              </article>
+              <article>
+                <span>Network</span>
+                <strong>{paymentReceipt?.network ?? "Gateway"}</strong>
+              </article>
+            </div>
+          </div>
         </article>
       ) : (
         <>
@@ -317,7 +447,7 @@ export function UnlockPanel({
               className="button secondary"
               type="button"
               onClick={refreshTerms}
-              disabled={isPending}
+              disabled={isWorking}
             >
               <RefreshCw aria-hidden="true" size={16} /> Refresh Terms
             </button>
@@ -325,9 +455,14 @@ export function UnlockPanel({
               className="button primary"
               type="button"
               onClick={payAndUnlock}
-              disabled={isPending}
+              disabled={isWorking}
             >
-              <WalletCards aria-hidden="true" size={16} /> Pay And Unlock
+              <WalletCards aria-hidden="true" size={16} />{" "}
+              {step === "signing"
+                ? "Awaiting Signature"
+                : step === "verifying"
+                  ? "Verifying"
+                  : "Pay And Unlock"}
             </button>
           </div>
 
