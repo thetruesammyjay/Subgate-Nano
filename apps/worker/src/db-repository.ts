@@ -65,9 +65,20 @@ export const createStreamingWorkerRepository = (
   db: SubgateDatabase,
   options: {
     platformFeePercent: number;
+    logger?: Pick<typeof console, "error" | "info" | "warn">;
   },
 ): StreamingWorkerRepository => {
   const access = createAccessService(db);
+  const logger = options.logger ?? console;
+  const logInfo = (event: string, details: Record<string, unknown>) => {
+    logger.info(
+      {
+        event: `streaming_worker.repository.${event}`,
+        ...details,
+      },
+      `streaming_worker.repository.${event}`,
+    );
+  };
 
   return {
     listTickableSessions(limit) {
@@ -90,15 +101,31 @@ export const createStreamingWorkerRepository = (
       });
 
       if (!pendingPayment.created) {
+        logInfo("idempotent_settlement_seen", {
+          sessionId: input.session.id,
+          paymentId: pendingPayment.payment.id,
+          status: pendingPayment.payment.status,
+        });
         return;
       }
 
       await markPaymentSettling(db, pendingPayment.payment.id);
+      logInfo("payment_settling", {
+        sessionId: input.session.id,
+        paymentId: pendingPayment.payment.id,
+        amountUsdc: input.amountUsdc,
+      });
       const payment = await settlePaymentRecord(db, pendingPayment.payment.id, {
         accessGrantId: input.session.accessGrantId,
         payerAddress: input.session.payerAddress,
         settlementResponse,
         settledAt: input.settledAt,
+      });
+      logInfo("payment_settled", {
+        sessionId: input.session.id,
+        paymentId: payment.id,
+        accessGrantId: input.session.accessGrantId,
+        gatewayTransactionId: payment.gatewayTransactionId,
       });
       const content = await getContentById(db, input.session.contentId);
 
@@ -106,9 +133,17 @@ export const createStreamingWorkerRepository = (
         throw new Error("Streaming settlement content record is missing.");
       }
 
-      await recordPlatformFeeLedgerEntry(db, {
+      const ledgerEntry = await recordPlatformFeeLedgerEntry(db, {
         payment,
         creatorId: content.creatorId,
+      });
+      logInfo(ledgerEntry ? "fee_ledger_posted" : "fee_ledger_exists", {
+        sessionId: input.session.id,
+        paymentId: payment.id,
+        ledgerEntryId: ledgerEntry?.id ?? null,
+        grossAmountUsdc: Number(payment.amountUsdc),
+        platformFeeUsdc: Number(payment.platformFeeUsdc),
+        creatorNetUsdc: Number(payment.creatorNetUsdc),
       });
       await markStreamingSessionSettled(
         db,

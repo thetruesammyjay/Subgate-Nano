@@ -87,6 +87,10 @@ const createMockSettlementService = (): X402SettlementService => {
   };
 };
 
+const paymentIdentifierPrefix = (paymentIdentifier: string) => {
+  return paymentIdentifier.slice(0, 16);
+};
+
 export const registerRoutes = async (
   app: FastifyInstance,
   db: SubgateDatabase,
@@ -115,6 +119,19 @@ export const registerRoutes = async (
         message: "Internal service credentials are required.",
       });
     }
+  };
+  const logPaymentEvent = (
+    event: string,
+    details: Record<string, unknown>,
+    level: "info" | "warn" | "error" = "info",
+  ) => {
+    app.log[level](
+      {
+        event: `x402.payment.${event}`,
+        ...details,
+      },
+      `x402.payment.${event}`,
+    );
   };
 
   app.get("/catalog", async () => {
@@ -484,12 +501,23 @@ export const registerRoutes = async (
       gatewayWalletAddress: env.X402_GATEWAY_WALLET_ADDRESS,
       maxTimeoutSeconds: env.X402_MAX_TIMEOUT_SECONDS,
     });
+    const paymentContext = {
+      requestId: request.id,
+      contentId: content.id,
+      slug: content.slug,
+      creatorId: content.creatorId,
+      pricingType: content.pricing.type,
+      amountUsdc: quote.amountUsdc,
+      network: env.X402_NETWORK,
+    };
 
     const paymentPayload = parsePaymentPayloadHeader(
       request.headers[PAYMENT_SIGNATURE_HEADER.toLowerCase()],
     );
 
     if (!paymentPayload) {
+      logPaymentEvent("terms_issued", paymentContext);
+
       return reply
         .code(402)
         .header(PAYMENT_REQUIRED_HEADER, encodePaymentRequired(paymentRequired))
@@ -498,12 +526,22 @@ export const registerRoutes = async (
 
     const paymentIdentifier = getPaymentPayloadIdentifier(paymentPayload);
     const existingPayment = await findPaymentByIdentifier(db, paymentIdentifier);
+    const identifiedPaymentContext = {
+      ...paymentContext,
+      paymentIdentifier: paymentIdentifierPrefix(paymentIdentifier),
+    };
 
     if (existingPayment?.status === "settled" && existingPayment.accessGrantId) {
       const access = await accessService.check(content.id, existingPayment.payerAddress);
 
       if (access.hasAccess) {
         const paymentResponse = JSON.parse(existingPayment.settlementResponse);
+        logPaymentEvent("idempotent_replay_settled", {
+          ...identifiedPaymentContext,
+          paymentId: existingPayment.id,
+          accessGrantId: existingPayment.accessGrantId,
+          gatewayTransactionId: existingPayment.gatewayTransactionId,
+        });
 
         return reply
           .header(PAYMENT_RESPONSE_HEADER, encodePaymentResponse(paymentResponse))
@@ -526,6 +564,15 @@ export const registerRoutes = async (
 
     if (existingPayment?.status === "failed") {
       const paymentResponse = JSON.parse(existingPayment.settlementResponse);
+      logPaymentEvent(
+        "idempotent_replay_failed",
+        {
+          ...identifiedPaymentContext,
+          paymentId: existingPayment.id,
+          gatewayTransactionId: existingPayment.gatewayTransactionId,
+        },
+        "warn",
+      );
 
       return reply
         .code(402)
@@ -541,6 +588,12 @@ export const registerRoutes = async (
       existingPayment?.status === "pending" ||
       existingPayment?.status === "settling"
     ) {
+      logPaymentEvent("idempotent_replay_processing", {
+        ...identifiedPaymentContext,
+        paymentId: existingPayment.id,
+        status: existingPayment.status,
+      });
+
       return reply.code(409).send({
         message: "Payment is already being processed.",
         paymentId: existingPayment.id,
@@ -551,6 +604,16 @@ export const registerRoutes = async (
     try {
       assertPaymentMatchesRequirement(paymentPayload, paymentRequired);
     } catch (error) {
+      logPaymentEvent(
+        "payload_rejected",
+        {
+          ...identifiedPaymentContext,
+          reason:
+            error instanceof Error ? error.message : "Invalid payment payload.",
+        },
+        "warn",
+      );
+
       return reply.code(400).send({
         message: error instanceof Error ? error.message : "Invalid payment payload.",
       });
@@ -565,6 +628,12 @@ export const registerRoutes = async (
       amountUsdc: quote.amountUsdc,
       paymentType: content.pricing.type,
       platformFeePercent: env.PLATFORM_FEE_PERCENT,
+    });
+    logPaymentEvent("record_observed", {
+      ...identifiedPaymentContext,
+      paymentId: pendingPayment.payment.id,
+      status: pendingPayment.payment.status,
+      created: pendingPayment.created,
     });
 
     if (!pendingPayment.created) {
@@ -581,6 +650,12 @@ export const registerRoutes = async (
           const paymentResponse = JSON.parse(
             pendingPayment.payment.settlementResponse,
           );
+          logPaymentEvent("idempotent_record_settled", {
+            ...identifiedPaymentContext,
+            paymentId: pendingPayment.payment.id,
+            accessGrantId: pendingPayment.payment.accessGrantId,
+            gatewayTransactionId: pendingPayment.payment.gatewayTransactionId,
+          });
 
           return reply
             .header(PAYMENT_RESPONSE_HEADER, encodePaymentResponse(paymentResponse))
@@ -605,6 +680,15 @@ export const registerRoutes = async (
         const paymentResponse = JSON.parse(
           pendingPayment.payment.settlementResponse,
         );
+        logPaymentEvent(
+          "idempotent_record_failed",
+          {
+            ...identifiedPaymentContext,
+            paymentId: pendingPayment.payment.id,
+            gatewayTransactionId: pendingPayment.payment.gatewayTransactionId,
+          },
+          "warn",
+        );
 
         return reply
           .code(402)
@@ -616,6 +700,12 @@ export const registerRoutes = async (
           });
       }
 
+      logPaymentEvent("idempotent_record_processing", {
+        ...identifiedPaymentContext,
+        paymentId: pendingPayment.payment.id,
+        status: pendingPayment.payment.status,
+      });
+
       return reply.code(409).send({
         message: "Payment is already being processed.",
         paymentId: pendingPayment.payment.id,
@@ -624,10 +714,18 @@ export const registerRoutes = async (
     }
 
     await markPaymentSettling(db, pendingPayment.payment.id);
+    logPaymentEvent("settling_started", {
+      ...identifiedPaymentContext,
+      paymentId: pendingPayment.payment.id,
+    });
 
     let settlement;
 
     try {
+      logPaymentEvent("settlement_requested", {
+        ...identifiedPaymentContext,
+        paymentId: pendingPayment.payment.id,
+      });
       settlement = await facilitator.settle(paymentPayload, paymentRequired);
     } catch (error) {
       const failedSettlement = {
@@ -641,6 +739,15 @@ export const registerRoutes = async (
       };
 
       await failPaymentRecord(db, pendingPayment.payment.id, failedSettlement);
+      logPaymentEvent(
+        "settlement_request_failed",
+        {
+          ...identifiedPaymentContext,
+          paymentId: pendingPayment.payment.id,
+          reason: failedSettlement.message,
+        },
+        "error",
+      );
 
       return reply.code(502).send({
         message: failedSettlement.message,
@@ -650,6 +757,16 @@ export const registerRoutes = async (
 
     if (!settlement.success) {
       await failPaymentRecord(db, pendingPayment.payment.id, settlement);
+      logPaymentEvent(
+        "settlement_declined",
+        {
+          ...identifiedPaymentContext,
+          paymentId: pendingPayment.payment.id,
+          gatewayTransactionId: settlement.transaction,
+          reason: settlement.message ?? settlement.errorReason,
+        },
+        "warn",
+      );
 
       return reply
         .code(402)
@@ -669,6 +786,15 @@ export const registerRoutes = async (
       };
 
       await failPaymentRecord(db, pendingPayment.payment.id, failedSettlement);
+      logPaymentEvent(
+        "settlement_missing_payer",
+        {
+          ...identifiedPaymentContext,
+          paymentId: pendingPayment.payment.id,
+          gatewayTransactionId: settlement.transaction,
+        },
+        "error",
+      );
 
       return reply.code(502).send({
         message: "Gateway settlement succeeded but did not include a payer address.",
@@ -680,15 +806,36 @@ export const registerRoutes = async (
       payerAddress: settlement.payer,
       pricing: content.pricing,
     });
+    logPaymentEvent("access_granted", {
+      ...identifiedPaymentContext,
+      paymentId: pendingPayment.payment.id,
+      accessGrantId: grant.id,
+      payerAddress: settlement.payer,
+    });
 
     const payment = await settlePaymentRecord(db, pendingPayment.payment.id, {
       accessGrantId: grant.id,
       payerAddress: settlement.payer,
       settlementResponse: settlement,
     });
-    await recordPlatformFeeLedgerEntry(db, {
+    logPaymentEvent("settled", {
+      ...identifiedPaymentContext,
+      paymentId: payment.id,
+      accessGrantId: grant.id,
+      payerAddress: settlement.payer,
+      gatewayTransactionId: settlement.transaction,
+    });
+    const ledgerEntry = await recordPlatformFeeLedgerEntry(db, {
       payment,
       creatorId: content.creatorId,
+    });
+    logPaymentEvent(ledgerEntry ? "fee_ledger_posted" : "fee_ledger_exists", {
+      ...identifiedPaymentContext,
+      paymentId: payment.id,
+      ledgerEntryId: ledgerEntry?.id ?? null,
+      grossAmountUsdc: Number(payment.amountUsdc),
+      platformFeeUsdc: Number(payment.platformFeeUsdc),
+      creatorNetUsdc: Number(payment.creatorNetUsdc),
     });
 
     return reply

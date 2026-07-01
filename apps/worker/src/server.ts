@@ -9,6 +9,7 @@ const db = createDatabase(pool);
 const worker = new StreamingWorker({
   repository: createStreamingWorkerRepository(db, {
     platformFeePercent: env.PLATFORM_FEE_PERCENT,
+    logger: console,
   }),
   batchThresholdUsdc: env.STREAMING_BATCH_THRESHOLD_USDC,
   sessionLimit: env.WORKER_STREAMING_SESSION_LIMIT,
@@ -28,11 +29,21 @@ const tick = async () => {
 
     if (result.ticked > 0 || result.settled > 0 || result.closed > 0) {
       console.info(
-        `streaming tick: scanned=${result.scanned} ticked=${result.ticked} settled=${result.settled} closed=${result.closed}`,
+        {
+          event: "streaming_worker.tick_completed",
+          ...result,
+        },
+        "streaming_worker.tick_completed",
       );
     }
   } catch (error) {
-    console.error(error, "Streaming worker tick failed.");
+    console.error(
+      {
+        event: "streaming_worker.tick_failed",
+        error,
+      },
+      "streaming_worker.tick_failed",
+    );
   } finally {
     isTicking = false;
   }

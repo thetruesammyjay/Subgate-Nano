@@ -61,6 +61,16 @@ export class StreamingWorker {
     this.logger = options.logger ?? console;
   }
 
+  private logInfo(event: string, details: Record<string, unknown>) {
+    this.logger.info(
+      {
+        event: `streaming_worker.${event}`,
+        ...details,
+      },
+      `streaming_worker.${event}`,
+    );
+  }
+
   async tickOnce(): Promise<StreamingWorkerTickResult> {
     const sessions = await this.repository.listTickableSessions(
       this.sessionLimit,
@@ -91,6 +101,15 @@ export class StreamingWorker {
           lastTickedAt: decision.tickedThrough,
         });
         result.ticked += 1;
+        this.logInfo("session_ticked", {
+          sessionId: session.id,
+          contentId: session.contentId,
+          status: session.status,
+          accruedUsdc: decision.accruedUsdc,
+          pendingSettlementUsdc: decision.pendingSettlementUsdc,
+          totalAccruedUsdc: decision.totalAccruedUsdc,
+          tickedThrough: decision.tickedThrough.toISOString(),
+        });
 
         if (decision.shouldSettle) {
           await this.repository.recordSettlement({
@@ -99,6 +118,13 @@ export class StreamingWorker {
             settledAt: decision.tickedThrough,
           });
           result.settled += 1;
+          this.logInfo("settlement_recorded", {
+            sessionId: session.id,
+            contentId: session.contentId,
+            accessGrantId: session.accessGrantId,
+            amountUsdc: decision.settleAmountUsdc,
+            settledAt: decision.tickedThrough.toISOString(),
+          });
         }
 
         if (decision.shouldClose) {
@@ -109,9 +135,18 @@ export class StreamingWorker {
 
           if (closedSession.accessGrantId) {
             await this.repository.revokeAccessGrant(closedSession.accessGrantId);
+            this.logInfo("access_revoked", {
+              sessionId: session.id,
+              accessGrantId: closedSession.accessGrantId,
+            });
           }
 
           result.closed += 1;
+          this.logInfo("session_closed", {
+            sessionId: session.id,
+            contentId: session.contentId,
+            closedAt: decision.tickedThrough.toISOString(),
+          });
         }
       } catch (error) {
         this.logger.error(
