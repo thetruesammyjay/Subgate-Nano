@@ -258,6 +258,48 @@ try {
       throw new Error("Creator stats did not include content and revenue totals.");
     }
 
+    const paymentsResponse = await app.inject({
+      method: "GET",
+      url: `/creators/${seed.creatorId}/payments`,
+      headers: {
+        "x-subgate-internal-secret": env.INTERNAL_SERVICE_SECRET,
+      },
+    });
+
+    if (paymentsResponse.statusCode !== 200) {
+      throw new Error(
+        `Expected creator payments 200, received ${paymentsResponse.statusCode}.`,
+      );
+    }
+
+    const paymentsBody = paymentsResponse.json<Array<{ paymentType?: string }>>();
+
+    if (!Array.isArray(paymentsBody) || paymentsBody.length === 0) {
+      throw new Error("Creator payments did not include the settled smoke payment.");
+    }
+
+    const performanceResponse = await app.inject({
+      method: "GET",
+      url: `/creators/${seed.creatorId}/content-performance`,
+      headers: {
+        "x-subgate-internal-secret": env.INTERNAL_SERVICE_SECRET,
+      },
+    });
+
+    if (performanceResponse.statusCode !== 200) {
+      throw new Error(
+        `Expected creator content performance 200, received ${performanceResponse.statusCode}.`,
+      );
+    }
+
+    const performanceBody = performanceResponse.json<
+      Array<{ contentId?: string; revenueUsdc?: number }>
+    >();
+
+    if (!performanceBody.some((item) => item.contentId && typeof item.revenueUsdc === "number")) {
+      throw new Error("Creator content performance did not include content revenue.");
+    }
+
     console.log(
       `Smoke passed: quote -> 402 -> ${PAYMENT_SIGNATURE_HEADER} -> grant ${unlockBody.accessGrantId}.`,
     );

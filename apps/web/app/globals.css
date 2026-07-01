@@ -764,6 +764,51 @@ h2 {
   margin: 8px 0 0;
 }
 
+.dashboard-revenue-grid {
+  display: grid;
+  gap: 1px;
+  grid-template-columns: repeat(3, 1fr);
+  padding-bottom: 0;
+}
+
+.dashboard-revenue-grid article {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  min-height: 230px;
+  padding: 22px;
+}
+
+.dashboard-revenue-grid svg {
+  color: var(--accent);
+  height: 26px;
+  margin-bottom: 42px;
+  width: 26px;
+}
+
+.dashboard-revenue-grid span,
+.payments-table span {
+  color: var(--text-secondary);
+  display: block;
+  font-family: var(--font-space-mono), monospace;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.dashboard-revenue-grid strong {
+  display: block;
+  font-family: var(--font-space-mono), monospace;
+  font-size: clamp(24px, 4vw, 38px);
+  font-weight: 500;
+  margin-top: 8px;
+}
+
+.dashboard-revenue-grid p {
+  color: var(--text-secondary);
+  line-height: 1.5;
+  margin: 16px 0 0;
+}
+
 .dashboard-grid {
   align-items: flex-start;
   display: grid;
@@ -940,6 +985,48 @@ h2 {
   color: var(--text-secondary);
   line-height: 1.5;
   margin: 14px 0 0;
+}
+
+.dashboard-payments-panel {
+  background: var(--surface);
+  border: 1px solid var(--border-visible);
+  margin-bottom: var(--space-2xl);
+}
+
+.payments-table {
+  display: grid;
+}
+
+.payments-table article {
+  align-items: center;
+  border-bottom: 1px solid var(--border);
+  display: grid;
+  gap: 18px;
+  grid-template-columns: minmax(0, 1.3fr) minmax(180px, 0.6fr) minmax(220px, 0.8fr);
+  min-height: 92px;
+  padding: 16px 0;
+}
+
+.payments-table article:last-child {
+  border-bottom: 0;
+}
+
+.payments-table strong {
+  display: block;
+  font-size: 17px;
+  font-weight: 500;
+  margin-top: 7px;
+  overflow-wrap: anywhere;
+}
+
+.payments-table small {
+  color: var(--text-secondary);
+  display: block;
+  font-family: var(--font-space-mono), monospace;
+  font-size: 12px;
+  line-height: 1.4;
+  margin-top: 8px;
+  overflow-wrap: anywhere;
 }
 
 .dashboard-integration-panel {
@@ -1206,6 +1293,8 @@ h2 {
   .content-detail,
   .dashboard-hero,
   .dashboard-grid,
+  .dashboard-revenue-grid,
+  .payments-table article,
   .integration-rule-card,
   .login-shell,
   .site-footer {

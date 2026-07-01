@@ -56,6 +56,37 @@ export const creatorStatsSchema = z.object({
 
 export type CreatorStats = z.infer<typeof creatorStatsSchema>;
 
+export const creatorPaymentSchema = z.object({
+  id: z.string().uuid(),
+  contentId: z.string().uuid(),
+  contentTitle: z.string().min(1),
+  contentSlug: z.string().min(1),
+  payerAddress: z.string().min(3).max(255),
+  amountUsdc: z.number().nonnegative(),
+  paymentType: z.string().min(1),
+  status: z.string().min(1),
+  gatewayTransactionId: z.string().nullable(),
+  settledAt: z.string().datetime().nullable(),
+  createdAt: z.string().datetime(),
+});
+
+export type CreatorPayment = z.infer<typeof creatorPaymentSchema>;
+
+export const creatorContentPerformanceSchema = z.object({
+  contentId: z.string().uuid(),
+  title: z.string().min(1),
+  slug: z.string().min(1),
+  isActive: z.boolean(),
+  paymentCount: z.number().int().nonnegative(),
+  settledPaymentCount: z.number().int().nonnegative(),
+  revenueUsdc: z.number().nonnegative(),
+  lastPaidAt: z.string().datetime().nullable(),
+});
+
+export type CreatorContentPerformance = z.infer<
+  typeof creatorContentPerformanceSchema
+>;
+
 export const contentUnlockSchema = z.object({
   id: z.string().uuid(),
   creatorId: z.string().uuid(),

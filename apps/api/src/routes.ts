@@ -10,6 +10,8 @@ import {
   getCreatorStats,
   getContentById,
   getContentBySlug,
+  listCreatorContentPerformance,
+  listCreatorPayments,
   listExternalAccessRules,
   listExternalContentMappings,
   listIntegrationSources,
@@ -248,6 +250,66 @@ export const registerRoutes = async (
       }
 
       return getCreatorStats(db, parsed.data);
+    },
+  );
+
+  app.get(
+    "/creators/:creatorId/payments",
+    {
+      preHandler: requireInternalService,
+    },
+    async (request, reply) => {
+      const params = request.params as { creatorId: string };
+      const parsed = z.string().uuid().safeParse(params.creatorId);
+
+      if (!parsed.success) {
+        return reply.code(400).send({
+          message: "A valid creator id is required.",
+        });
+      }
+
+      const creator = await getCreatorById(db, parsed.data);
+
+      if (!creator) {
+        return reply.code(404).send({
+          message: "Creator not found.",
+        });
+      }
+
+      const query = z
+        .object({
+          limit: z.coerce.number().int().min(1).max(100).default(25),
+        })
+        .parse(request.query);
+
+      return listCreatorPayments(db, parsed.data, query.limit);
+    },
+  );
+
+  app.get(
+    "/creators/:creatorId/content-performance",
+    {
+      preHandler: requireInternalService,
+    },
+    async (request, reply) => {
+      const params = request.params as { creatorId: string };
+      const parsed = z.string().uuid().safeParse(params.creatorId);
+
+      if (!parsed.success) {
+        return reply.code(400).send({
+          message: "A valid creator id is required.",
+        });
+      }
+
+      const creator = await getCreatorById(db, parsed.data);
+
+      if (!creator) {
+        return reply.code(404).send({
+          message: "Creator not found.",
+        });
+      }
+
+      return listCreatorContentPerformance(db, parsed.data);
     },
   );
 

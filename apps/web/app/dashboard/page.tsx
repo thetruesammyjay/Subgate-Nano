@@ -1,4 +1,12 @@
-import { FileText, LockKeyhole, RadioTower, Rows3, ShieldCheck } from "lucide-react";
+import {
+  CircleDollarSign,
+  FileText,
+  LockKeyhole,
+  RadioTower,
+  ReceiptText,
+  Rows3,
+  ShieldCheck,
+} from "lucide-react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { FloatingIcons } from "../../components/floating-icons";
@@ -20,6 +28,18 @@ const formatPricing = (item: Awaited<ReturnType<typeof fetchDashboardState>>["ca
   }
 };
 
+const formatUsdc = (value: number | null | undefined) => {
+  return `$${(value ?? 0).toFixed(6).replace(/0+$/, "").replace(/\.$/, "")} USDC`;
+};
+
+const formatDate = (value: string | null) => {
+  return value ? new Date(value).toLocaleString() : "Pending";
+};
+
+const shortAddress = (value: string) => {
+  return value.length > 14 ? `${value.slice(0, 8)}...${value.slice(-6)}` : value;
+};
+
 export default async function DashboardPage() {
   const session = await getDashboardSession();
 
@@ -29,6 +49,10 @@ export default async function DashboardPage() {
 
   const state = await fetchDashboardState();
   const creator = session.creator;
+  const stats = state.creatorStats;
+  const performanceByContentId = new Map(
+    state.contentPerformance.map((item) => [item.contentId, item]),
+  );
   const discourseMappings = state.externalContentMappings.filter(
     (mapping) => mapping.platform === "discourse",
   );
@@ -78,16 +102,16 @@ export default async function DashboardPage() {
             <strong>{state.error ? "CHECK" : "ONLINE"}</strong>
           </div>
           <div>
-            <span>Creators</span>
-            <strong>{state.creators.length}</strong>
+            <span>Revenue</span>
+            <strong>{formatUsdc(stats?.revenueUsdc).replace(" USDC", "")}</strong>
           </div>
           <div>
-            <span>Catalog</span>
-            <strong>{state.catalog.length}</strong>
+            <span>Settled</span>
+            <strong>{stats?.settledPaymentCount ?? 0}</strong>
           </div>
           <div>
-            <span>Rules</span>
-            <strong>{state.externalAccessRules.length}</strong>
+            <span>Content</span>
+            <strong>{stats?.activeContentCount ?? state.catalog.length}</strong>
           </div>
         </div>
       </section>
@@ -101,6 +125,27 @@ export default async function DashboardPage() {
           </div>
         </section>
       )}
+
+      <section className="section-shell dashboard-revenue-grid">
+        <article>
+          <CircleDollarSign aria-hidden="true" />
+          <span>Total Revenue</span>
+          <strong>{formatUsdc(stats?.revenueUsdc)}</strong>
+          <p>Settled x402 payments recorded for {creator.displayName}.</p>
+        </article>
+        <article>
+          <ReceiptText aria-hidden="true" />
+          <span>Payments</span>
+          <strong>{stats?.settledPaymentCount ?? 0} settled</strong>
+          <p>{stats?.paymentCount ?? 0} total payment attempts in the ledger.</p>
+        </article>
+        <article>
+          <FileText aria-hidden="true" />
+          <span>Active Content</span>
+          <strong>{stats?.activeContentCount ?? 0}/{stats?.contentCount ?? 0}</strong>
+          <p>Items available to readers, Telegram audiences, and agents.</p>
+        </article>
+      </section>
 
       <section className="section-shell dashboard-grid">
         <CreateContentForm creators={[creator]} />
@@ -121,11 +166,20 @@ export default async function DashboardPage() {
                 key={item.id}
               >
                 <div>
-                  <span>{item.pricing.type}</span>
+                  <span>
+                    {item.pricing.type}
+                    {performanceByContentId.get(item.id)
+                      ? ` / ${performanceByContentId.get(item.id)?.settledPaymentCount ?? 0} paid`
+                      : ""}
+                  </span>
                   <strong>{item.title}</strong>
                   <small>{item.summary}</small>
                 </div>
-                <p>{formatPricing(item)}</p>
+                <p>
+                  {performanceByContentId.get(item.id)
+                    ? formatUsdc(performanceByContentId.get(item.id)?.revenueUsdc)
+                    : formatPricing(item)}
+                </p>
               </Link>
             ))
           ) : (
@@ -136,6 +190,45 @@ export default async function DashboardPage() {
             </div>
           )}
         </aside>
+      </section>
+
+      <section className="section-shell dashboard-payments-panel">
+        <div className="dashboard-panel-heading">
+          <span>
+            <ReceiptText aria-hidden="true" size={16} /> Recent Payments
+          </span>
+          <strong>{state.creatorPayments.length} ROWS</strong>
+        </div>
+
+        {state.creatorPayments.length > 0 ? (
+          <div className="payments-table">
+            {state.creatorPayments.map((payment) => (
+              <article key={payment.id}>
+                <div>
+                  <span>{payment.status}</span>
+                  <strong>{payment.contentTitle}</strong>
+                  <small>{shortAddress(payment.payerAddress)}</small>
+                </div>
+                <div>
+                  <span>Amount</span>
+                  <strong>{formatUsdc(payment.amountUsdc)}</strong>
+                  <small>{payment.paymentType}</small>
+                </div>
+                <div>
+                  <span>Settled</span>
+                  <strong>{formatDate(payment.settledAt)}</strong>
+                  <small>{payment.gatewayTransactionId ?? "No transaction id"}</small>
+                </div>
+              </article>
+            ))}
+          </div>
+        ) : (
+          <div className="empty-state">
+            <span>NO PAYMENTS YET</span>
+            <strong>Publish one paid item and share the unlock link.</strong>
+            <p>Settled x402 payments will appear here with payer, amount, and content.</p>
+          </div>
+        )}
       </section>
 
       <section className="section-shell dashboard-integration-panel">

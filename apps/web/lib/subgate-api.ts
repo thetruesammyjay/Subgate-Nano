@@ -3,6 +3,9 @@ import type {
   ContentItem,
   ContentUnlock,
   Creator,
+  CreatorContentPerformance,
+  CreatorPayment,
+  CreatorStats,
   CreateContentInput,
   PricingQuote,
   X402PaymentRequired,
@@ -28,6 +31,9 @@ export type DashboardState = {
   apiUrl: string;
   creators: Creator[];
   catalog: ContentCatalogItem[];
+  creatorStats: CreatorStats | null;
+  creatorPayments: CreatorPayment[];
+  contentPerformance: CreatorContentPerformance[];
   integrationSources: IntegrationSourceRecord[];
   externalContentMappings: ExternalContentMappingRecord[];
   externalAccessRules: ExternalAccessRuleRecord[];
@@ -275,11 +281,29 @@ export const fetchDashboardState = async (): Promise<DashboardState> => {
       ),
       fetchInternalJson<ExternalAccessRuleRecord[]>(`${apiUrl}/integrations/rules`),
     ]);
+    const primaryCreator = creators[0] ?? null;
+    const [creatorStatsResult, creatorPaymentsResult, contentPerformanceResult] =
+      primaryCreator
+        ? await Promise.all([
+            fetchInternalJson<CreatorStats>(
+              `${apiUrl}/creators/${primaryCreator.id}/stats`,
+            ),
+            fetchInternalJson<CreatorPayment[]>(
+              `${apiUrl}/creators/${primaryCreator.id}/payments?limit=25`,
+            ),
+            fetchInternalJson<CreatorContentPerformance[]>(
+              `${apiUrl}/creators/${primaryCreator.id}/content-performance`,
+            ),
+          ])
+        : [null, [] as CreatorPayment[], [] as CreatorContentPerformance[]];
 
     return {
       apiUrl,
       creators,
       catalog,
+      creatorStats: creatorStatsResult,
+      creatorPayments: creatorPaymentsResult,
+      contentPerformance: contentPerformanceResult,
       integrationSources,
       externalContentMappings,
       externalAccessRules,
@@ -291,6 +315,9 @@ export const fetchDashboardState = async (): Promise<DashboardState> => {
       apiUrl,
       creators: [],
       catalog: [],
+      creatorStats: null,
+      creatorPayments: [],
+      contentPerformance: [],
       integrationSources: [],
       externalContentMappings: [],
       externalAccessRules: [],
