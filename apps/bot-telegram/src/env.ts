@@ -9,6 +9,7 @@ const telegramBotEnvSchema = z.object({
   TELEGRAM_BOT_HOST: z.string().min(1).default("0.0.0.0"),
   TELEGRAM_BOT_PORT: z.coerce.number().int().positive().default(3003),
   TELEGRAM_BOT_TOKEN: z.string().min(1),
+  TELEGRAM_WEBHOOK_URL: optionalNonEmptyString,
   TELEGRAM_WEBHOOK_SECRET: optionalNonEmptyString,
   SUBGATE_API_URL: z.string().url().default("http://localhost:3001"),
   SUBGATE_WEB_URL: z.string().url().default("http://localhost:3000"),

@@ -265,8 +265,32 @@ export const syncExternalIntegrationMapping = async (
   };
 };
 
-export const listIntegrationSources = async (db: SubgateDatabase) => {
-  return db.select().from(integrationSources);
+export const listIntegrationSources = async (
+  db: SubgateDatabase,
+  filters?: {
+    creatorId?: string;
+    platform?: string;
+    externalSourceId?: string;
+  },
+) => {
+  const conditions = [
+    filters?.creatorId
+      ? eq(integrationSources.creatorId, filters.creatorId)
+      : undefined,
+    filters?.platform
+      ? eq(integrationSources.platform, filters.platform)
+      : undefined,
+    filters?.externalSourceId
+      ? eq(integrationSources.externalSourceId, filters.externalSourceId)
+      : undefined,
+  ].filter((condition): condition is NonNullable<typeof condition> =>
+    Boolean(condition),
+  );
+
+  return db
+    .select()
+    .from(integrationSources)
+    .where(conditions.length > 0 ? and(...conditions) : undefined);
 };
 
 export const listExternalContentMappings = async (

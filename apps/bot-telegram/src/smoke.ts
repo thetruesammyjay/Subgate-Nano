@@ -1,6 +1,7 @@
 import type { ContentItem } from "@subgate/types";
 import { buildTelegramBotApp } from "./app.js";
 import type { TelegramBotEnv } from "./env.js";
+import type { IntegrationSource } from "./subgate-client.js";
 
 const env: TelegramBotEnv = {
   TELEGRAM_BOT_HOST: "127.0.0.1",
@@ -11,11 +12,13 @@ const env: TelegramBotEnv = {
   SUBGATE_WEB_URL: "http://localhost:3000",
   INTERNAL_SERVICE_SECRET: "telegram-smoke-internal-secret",
   DEFAULT_CREATOR_ID: "00000000-0000-4000-8000-000000000001",
-  DEFAULT_CHANNEL_ID: "@subgate_demo",
   DEFAULT_PRICE_USDC: 0.003,
 };
 const sentMessages: Array<{ chatId: string | number; text: string }> = [];
 const createdContent: ContentItem[] = [];
+const boundChannels: IntegrationSource[] = [];
+const syncedMappings: Array<{ contentId: string; messageId: number }> = [];
+let nextTelegramMessageId = 100;
 
 const app = await buildTelegramBotApp({
   env,
@@ -47,12 +50,50 @@ const app = await buildTelegramBotApp({
         revenueUsdc: 0.006,
       };
     },
+    async listTelegramChannels() {
+      return boundChannels;
+    },
+    async bindTelegramChannel(input) {
+      const channel: IntegrationSource = {
+        id: "00000000-0000-4000-8000-000000000020",
+        creatorId: input.creatorId,
+        platform: "telegram",
+        externalSourceId: input.chatId,
+        name: input.name,
+        baseUrl: input.username ? `https://t.me/${input.username}` : null,
+        metadata: {
+          chatType: input.chatType,
+          username: input.username,
+        },
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+
+      boundChannels.unshift(channel);
+
+      return channel;
+    },
+    async syncTelegramPublishMapping(input) {
+      syncedMappings.push({
+        contentId: input.content.id,
+        messageId: input.messageId,
+      });
+
+      return { ok: true };
+    },
   },
   telegramClient: {
     async sendMessage(chatId, text) {
       sentMessages.push({ chatId, text });
 
-      return { ok: true };
+      return {
+        ok: true,
+        result: {
+          message_id: nextTelegramMessageId++,
+          chat: { id: chatId, type: "channel" },
+          text,
+        },
+      };
     },
   },
 });
@@ -70,7 +111,7 @@ try {
     );
   }
 
-  const publishResponse = await app.inject({
+  const bindResponse = await app.inject({
     method: "POST",
     url: "/webhooks/telegram",
     headers: {
@@ -79,9 +120,45 @@ try {
     payload: {
       update_id: 1,
       message: {
+        message_id: 10,
+        chat: {
+          id: -1001234567890,
+          type: "channel",
+          title: "Subgate Smoke",
+          username: "subgate_smoke",
+        },
+        text: "/bind",
+      },
+    },
+  });
+
+  if (bindResponse.statusCode !== 200) {
+    throw new Error(
+      `Expected bind webhook to return 200, received ${bindResponse.statusCode}.`,
+    );
+  }
+
+  if (boundChannels.length !== 1) {
+    throw new Error("Expected /bind to persist one Telegram channel.");
+  }
+
+  const publishResponse = await app.inject({
+    method: "POST",
+    url: "/webhooks/telegram",
+    headers: {
+      "x-telegram-bot-api-secret-token": env.TELEGRAM_WEBHOOK_SECRET ?? "",
+    },
+    payload: {
+      update_id: 2,
+      message: {
         message_id: 11,
         chat: { id: 1001, type: "private" },
-        text: "/publish Alpha memo | 0.003 | A compact paid teaser | Full paid body",
+        reply_to_message: {
+          message_id: 9,
+          chat: { id: 1001, type: "private" },
+          text: "Full paid body from a replied draft",
+        },
+        text: "/publish Alpha memo | 0.003 | A compact paid teaser",
       },
     },
   });
@@ -96,8 +173,16 @@ try {
     throw new Error("Expected publish command to create one Subgate content item.");
   }
 
-  if (!sentMessages.some((message) => message.chatId === env.DEFAULT_CHANNEL_ID)) {
-    throw new Error("Expected publish command to post teaser to the channel.");
+  if (!sentMessages.some((message) => message.chatId === "-1001234567890")) {
+    throw new Error("Expected publish command to post teaser to the bound channel.");
+  }
+
+  if (!createdContent[0]?.body.includes("replied draft")) {
+    throw new Error("Expected publish command to use replied message as paid body.");
+  }
+
+  if (syncedMappings.length !== 1) {
+    throw new Error("Expected publish command to sync Telegram post mapping.");
   }
 
   const statsResponse = await app.inject({
@@ -107,7 +192,7 @@ try {
       "x-telegram-bot-api-secret-token": env.TELEGRAM_WEBHOOK_SECRET ?? "",
     },
     payload: {
-      update_id: 2,
+      update_id: 3,
       message: {
         message_id: 12,
         chat: { id: 1001, type: "private" },
@@ -127,7 +212,7 @@ try {
   }
 
   console.log(
-    "Telegram bot smoke passed: /publish creates content and posts unlock link; /stats returns creator sales.",
+    "Telegram bot smoke passed: /bind stores a channel; /publish creates content, posts unlock link, and syncs mapping; /stats returns creator sales.",
   );
 } finally {
   await app.close();

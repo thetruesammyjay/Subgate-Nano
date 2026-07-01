@@ -6,7 +6,14 @@ import { TelegramClient, type TelegramUpdate } from "./telegram-client.js";
 
 export type BuildTelegramBotAppOptions = {
   env: TelegramBotEnv;
-  subgateClient?: Pick<SubgateClient, "createContent" | "getCreatorStats">;
+  subgateClient?: Pick<
+    SubgateClient,
+    | "bindTelegramChannel"
+    | "createContent"
+    | "getCreatorStats"
+    | "listTelegramChannels"
+    | "syncTelegramPublishMapping"
+  >;
   telegramClient?: Pick<TelegramClient, "sendMessage">;
 };
 
@@ -54,8 +61,10 @@ export const buildTelegramBotApp = async ({
 
     const update = request.body as TelegramUpdate;
 
-    if (update.message) {
-      await handleTelegramMessage(update.message, {
+    const message = update.message ?? update.channel_post;
+
+    if (message) {
+      await handleTelegramMessage(message, {
         env,
         subgate,
         telegram,

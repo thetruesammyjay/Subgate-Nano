@@ -14,16 +14,33 @@ export type TelegramMessage = {
     username?: string;
   };
   text?: string;
+  reply_to_message?: TelegramMessage;
 };
 
 export type TelegramUpdate = {
   update_id: number;
   message?: TelegramMessage;
+  channel_post?: TelegramMessage;
 };
 
 export type SendMessageOptions = {
   disableWebPagePreview?: boolean;
   replyMarkup?: Record<string, unknown>;
+};
+
+export type TelegramSendMessageResult = {
+  ok: boolean;
+  result?: TelegramMessage;
+};
+
+export type TelegramWebhookInfo = {
+  url: string;
+  has_custom_certificate: boolean;
+  pending_update_count: number;
+  last_error_date?: number;
+  last_error_message?: string;
+  max_connections?: number;
+  allowed_updates?: string[];
 };
 
 export type TelegramClientOptions = {
@@ -44,8 +61,8 @@ export class TelegramClient {
     chatId: TelegramChatId,
     text: string,
     options: SendMessageOptions = {},
-  ) {
-    return this.post("sendMessage", {
+  ): Promise<TelegramSendMessageResult> {
+    return this.post<TelegramSendMessageResult>("sendMessage", {
       chat_id: chatId,
       text,
       disable_web_page_preview: options.disableWebPagePreview ?? true,
@@ -53,7 +70,38 @@ export class TelegramClient {
     });
   }
 
-  private async post(method: string, body: Record<string, unknown>) {
+  async setWebhook(options: {
+    url: string;
+    secretToken?: string;
+    allowedUpdates?: string[];
+  }) {
+    return this.post<{ ok: boolean; result: boolean; description?: string }>(
+      "setWebhook",
+      {
+        url: options.url,
+        ...(options.secretToken
+          ? { secret_token: options.secretToken }
+          : {}),
+        allowed_updates: options.allowedUpdates ?? ["message", "channel_post"],
+      },
+    );
+  }
+
+  async deleteWebhook() {
+    return this.post<{ ok: boolean; result: boolean; description?: string }>(
+      "deleteWebhook",
+      {},
+    );
+  }
+
+  async getWebhookInfo() {
+    return this.post<{ ok: boolean; result: TelegramWebhookInfo }>(
+      "getWebhookInfo",
+      {},
+    );
+  }
+
+  private async post<T>(method: string, body: Record<string, unknown>): Promise<T> {
     const response = await this.fetchImpl(`${this.baseUrl}/${method}`, {
       method: "POST",
       headers: {
@@ -75,6 +123,6 @@ export class TelegramClient {
       throw new Error(description);
     }
 
-    return payload;
+    return payload as T;
   }
 }

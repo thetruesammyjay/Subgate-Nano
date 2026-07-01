@@ -8,7 +8,10 @@
     "dev": "tsx watch src/server.ts",
     "lint": "tsc -p tsconfig.json --noEmit",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "smoke": "tsx src/smoke.ts"
+    "smoke": "tsx src/smoke.ts",
+    "webhook:set": "tsx src/setup-webhook.ts set",
+    "webhook:info": "tsx src/setup-webhook.ts info",
+    "webhook:delete": "tsx src/setup-webhook.ts delete"
   },
   "dependencies": {
     "@subgate/types": "workspace:*",

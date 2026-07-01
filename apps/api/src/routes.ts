@@ -20,6 +20,7 @@ import {
   revokeCreatorSession,
   syncContentBySlug,
   syncExternalIntegrationMapping,
+  upsertIntegrationSource,
   type SubgateDatabase,
 } from "@subgate/db";
 import { quotePricing, serializePricingForStorage } from "@subgate/pricing";
@@ -318,8 +319,42 @@ export const registerRoutes = async (
     {
       preHandler: requireInternalService,
     },
-    async () => {
-      return listIntegrationSources(db);
+    async (request) => {
+      const query = request.query as {
+        creatorId?: string;
+        platform?: string;
+        externalSourceId?: string;
+      };
+
+      return listIntegrationSources(db, query);
+    },
+  );
+
+  app.post(
+    "/integrations/sources",
+    {
+      preHandler: requireInternalService,
+    },
+    async (request, reply) => {
+      const parsed = z
+        .object({
+          creatorId: z.string().uuid(),
+          platform: z.string().min(1),
+          externalSourceId: z.string().min(1),
+          name: z.string().min(1),
+          baseUrl: z.string().url().nullable().optional(),
+          metadata: z.record(z.unknown()).optional(),
+        })
+        .safeParse(request.body);
+
+      if (!parsed.success) {
+        return reply.code(400).send({
+          message: "Invalid integration source payload.",
+          issues: parsed.error.issues,
+        });
+      }
+
+      return upsertIntegrationSource(db, parsed.data);
     },
   );
 
