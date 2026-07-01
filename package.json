@@ -14,6 +14,7 @@
     "demo:x402:local": "pnpm --filter @subgate/api demo:x402",
     "smoke:api": "pnpm --filter @subgate/api smoke",
     "smoke:bot-telegram": "pnpm --filter @subgate/bot-telegram smoke",
+    "smoke:worker": "pnpm --filter @subgate/worker smoke",
     "smoke:sidecar": "pnpm --filter @subgate/sidecar smoke"
   },
   "devDependencies": {

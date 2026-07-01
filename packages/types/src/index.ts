@@ -160,6 +160,46 @@ export const accessStatusSchema = z.object({
 
 export type AccessStatus = z.infer<typeof accessStatusSchema>;
 
+export const streamingSessionStatusSchema = z.enum([
+  "active",
+  "stopping",
+  "closed",
+  "paused",
+]);
+
+export type StreamingSessionStatus = z.infer<
+  typeof streamingSessionStatusSchema
+>;
+
+export const streamingSessionSchema = z.object({
+  id: z.string().uuid(),
+  contentId: z.string().uuid(),
+  accessGrantId: z.string().uuid().nullable(),
+  payerAddress: payerAddressSchema,
+  ratePerSecondUsdc: z.number().nonnegative(),
+  maxAmountUsdc: z.number().nonnegative().nullable(),
+  totalAccruedUsdc: z.number().nonnegative(),
+  totalSettledUsdc: z.number().nonnegative(),
+  pendingSettlementUsdc: z.number().nonnegative(),
+  startedAt: z.string().datetime(),
+  lastTickedAt: z.string().datetime(),
+  stoppedAt: z.string().datetime().nullable(),
+  closedAt: z.string().datetime().nullable(),
+  status: streamingSessionStatusSchema,
+});
+
+export type StreamingSession = z.infer<typeof streamingSessionSchema>;
+
+export const startStreamingSessionInputSchema = z.object({
+  payerAddress: payerAddressSchema,
+  ratePerSecondUsdc: z.number().positive().optional(),
+  maxAmountUsdc: z.number().positive().optional(),
+});
+
+export type StartStreamingSessionInput = z.infer<
+  typeof startStreamingSessionInputSchema
+>;
+
 export const pricingQuoteSchema = z.object({
   amountUsdc: z.number().nonnegative(),
   pricing: pricingModelSchema,

@@ -10,6 +10,7 @@ import {
   getCreatorStats,
   getContentById,
   getContentBySlug,
+  getStreamingSessionById,
   listCreatorContentPerformance,
   listCreatorPayments,
   listExternalAccessRules,
@@ -18,8 +19,10 @@ import {
   listCreators,
   listActiveCatalogItems,
   revokeCreatorSession,
+  stopStreamingSession,
   syncContentBySlug,
   syncExternalIntegrationMapping,
+  createStreamingSession,
   upsertIntegrationSource,
   type SubgateDatabase,
 } from "@subgate/db";
@@ -42,6 +45,7 @@ import {
   createContentInputSchema,
   payerAddressSchema,
   pricingModelSchema,
+  startStreamingSessionInputSchema,
 } from "@subgate/types";
 import type { FastifyInstance } from "fastify";
 import type { FastifyReply, FastifyRequest } from "fastify";
@@ -589,6 +593,100 @@ export const registerRoutes = async (
     }
 
     return quotePricing(content.pricing, { quantity });
+  });
+
+  app.post("/stream/:contentId/start", async (request, reply) => {
+    const params = request.params as { contentId: string };
+    const parsedContentId = z.string().uuid().safeParse(params.contentId);
+
+    if (!parsedContentId.success) {
+      return reply.code(400).send({
+        message: "A valid content id is required.",
+      });
+    }
+
+    const content = await getContentById(db, parsedContentId.data);
+
+    if (!content || !content.isActive) {
+      return reply.code(404).send({ message: "Content not found." });
+    }
+
+    if (content.pricing.type !== "per_second") {
+      return reply.code(400).send({
+        message: "Content is not configured for per-second streaming.",
+      });
+    }
+
+    const parsed = startStreamingSessionInputSchema.safeParse(request.body);
+
+    if (!parsed.success) {
+      return reply.code(400).send({
+        message: "Invalid streaming session payload.",
+        issues: parsed.error.issues,
+      });
+    }
+
+    const ratePerSecondUsdc =
+      parsed.data.ratePerSecondUsdc ?? content.pricing.rateUsdc;
+
+    if (ratePerSecondUsdc < content.pricing.rateUsdc) {
+      return reply.code(400).send({
+        message: "Approved rate is below the creator's streaming price.",
+      });
+    }
+
+    const grant = await accessService.grant({
+      contentId: content.id,
+      payerAddress: parsed.data.payerAddress,
+      pricing: content.pricing,
+    });
+    const session = await createStreamingSession(db, {
+      contentId: content.id,
+      accessGrantId: grant.id,
+      payerAddress: parsed.data.payerAddress,
+      ratePerSecondUsdc,
+      maxAmountUsdc: parsed.data.maxAmountUsdc,
+    });
+
+    return reply.code(201).send(session);
+  });
+
+  app.get("/stream/sessions/:sessionId", async (request, reply) => {
+    const params = request.params as { sessionId: string };
+    const parsedSessionId = z.string().uuid().safeParse(params.sessionId);
+
+    if (!parsedSessionId.success) {
+      return reply.code(400).send({
+        message: "A valid streaming session id is required.",
+      });
+    }
+
+    const session = await getStreamingSessionById(db, parsedSessionId.data);
+
+    if (!session) {
+      return reply.code(404).send({ message: "Streaming session not found." });
+    }
+
+    return session;
+  });
+
+  app.post("/stream/sessions/:sessionId/stop", async (request, reply) => {
+    const params = request.params as { sessionId: string };
+    const parsedSessionId = z.string().uuid().safeParse(params.sessionId);
+
+    if (!parsedSessionId.success) {
+      return reply.code(400).send({
+        message: "A valid streaming session id is required.",
+      });
+    }
+
+    const session = await stopStreamingSession(db, parsedSessionId.data);
+
+    if (!session) {
+      return reply.code(404).send({ message: "Streaming session not found." });
+    }
+
+    return session;
   });
 
   app.get("/content/:contentId/access", async (request, reply) => {

@@ -1,5 +1,6 @@
 import {
   boolean,
+  index,
   jsonb,
   numeric,
   pgTable,
@@ -105,6 +106,66 @@ export const accessGrants = pgTable("access_grants", {
   revokedAt: timestamp("revoked_at", { withTimezone: true }),
   isActive: boolean("is_active").default(true).notNull(),
 });
+
+export const streamingSessions = pgTable(
+  "streaming_sessions",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    contentId: uuid("content_id")
+      .notNull()
+      .references(() => contentItems.id, { onDelete: "cascade" }),
+    accessGrantId: uuid("access_grant_id").references(() => accessGrants.id, {
+      onDelete: "set null",
+    }),
+    payerAddress: varchar("payer_address", { length: 255 }).notNull(),
+    ratePerSecondUsdc: numeric("rate_per_second_usdc", {
+      precision: 18,
+      scale: 6,
+    }).notNull(),
+    maxAmountUsdc: numeric("max_amount_usdc", { precision: 18, scale: 6 }),
+    totalAccruedUsdc: numeric("total_accrued_usdc", {
+      precision: 18,
+      scale: 6,
+    })
+      .default("0")
+      .notNull(),
+    totalSettledUsdc: numeric("total_settled_usdc", {
+      precision: 18,
+      scale: 6,
+    })
+      .default("0")
+      .notNull(),
+    pendingSettlementUsdc: numeric("pending_settlement_usdc", {
+      precision: 18,
+      scale: 6,
+    })
+      .default("0")
+      .notNull(),
+    startedAt: timestamp("started_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    lastTickedAt: timestamp("last_ticked_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    stoppedAt: timestamp("stopped_at", { withTimezone: true }),
+    closedAt: timestamp("closed_at", { withTimezone: true }),
+    status: varchar("status", { length: 32 }).default("active").notNull(),
+    metadata: jsonb("metadata").$type<Record<string, unknown>>().default({}).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    statusIdx: index("streaming_sessions_status_idx").on(table.status),
+    contentPayerIdx: index("streaming_sessions_content_payer_idx").on(
+      table.contentId,
+      table.payerAddress,
+    ),
+  }),
+);
 
 export const integrationSources = pgTable(
   "integration_sources",

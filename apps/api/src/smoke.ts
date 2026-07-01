@@ -6,6 +6,7 @@ import {
   parsePaymentPayloadHeader,
 } from "@subgate/x402";
 import type {
+  StreamingSession,
   X402PaymentPayload,
   X402PaymentRequired,
   X402SettlementResponse,
@@ -298,6 +299,65 @@ try {
 
     if (!performanceBody.some((item) => item.contentId && typeof item.revenueUsdc === "number")) {
       throw new Error("Creator content performance did not include content revenue.");
+    }
+
+    const streamContentId = seed.contentIds[2];
+
+    if (!streamContentId) {
+      throw new Error("Seed data did not include per-second stream content.");
+    }
+
+    const streamStartResponse = await app.inject({
+      method: "POST",
+      url: `/stream/${streamContentId}/start`,
+      payload: {
+        payerAddress: "0x3333333333333333333333333333333333333333",
+        maxAmountUsdc: 0.01,
+      },
+    });
+
+    if (streamStartResponse.statusCode !== 201) {
+      throw new Error(
+        `Expected stream start 201, received ${streamStartResponse.statusCode}: ${streamStartResponse.body}`,
+      );
+    }
+
+    const streamSession = streamStartResponse.json<StreamingSession>();
+
+    if (
+      streamSession.contentId !== streamContentId ||
+      streamSession.status !== "active" ||
+      !streamSession.accessGrantId
+    ) {
+      throw new Error("Stream start did not create an active metered session.");
+    }
+
+    const streamStatusResponse = await app.inject({
+      method: "GET",
+      url: `/stream/sessions/${streamSession.id}`,
+    });
+
+    if (streamStatusResponse.statusCode !== 200) {
+      throw new Error(
+        `Expected stream status 200, received ${streamStatusResponse.statusCode}.`,
+      );
+    }
+
+    const streamStopResponse = await app.inject({
+      method: "POST",
+      url: `/stream/sessions/${streamSession.id}/stop`,
+    });
+
+    if (streamStopResponse.statusCode !== 200) {
+      throw new Error(
+        `Expected stream stop 200, received ${streamStopResponse.statusCode}.`,
+      );
+    }
+
+    const stoppedStreamSession = streamStopResponse.json<StreamingSession>();
+
+    if (stoppedStreamSession.status !== "stopping") {
+      throw new Error("Stream stop did not mark the session for worker finalization.");
     }
 
     console.log(

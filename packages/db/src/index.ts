@@ -7,3 +7,4 @@ export * from "./integrations.js";
 export * from "./payments.js";
 export * from "./seed.js";
 export * from "./schema.js";
+export * from "./streaming.js";
