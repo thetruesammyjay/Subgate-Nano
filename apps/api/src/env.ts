@@ -1,5 +1,10 @@
 import { z } from "zod";
 
+const optionalUrl = z.preprocess(
+  (value) => (value === "" ? undefined : value),
+  z.string().url().optional(),
+);
+
 const apiEnvSchema = z.object({
   DATABASE_URL: z.string().url(),
   API_HOST: z.string().min(1).default("0.0.0.0"),
@@ -7,11 +12,12 @@ const apiEnvSchema = z.object({
   JWT_SECRET: z.string().min(32),
   PLATFORM_FEE_PERCENT: z.coerce.number().min(0).max(100),
   CIRCLE_API_KEY: z.string().optional(),
-  ARC_RPC_URL: z.string().url().optional(),
+  ARC_RPC_URL: optionalUrl,
   X402_FACILITATOR_URL: z
     .string()
     .url()
     .default("https://gateway-api-testnet.circle.com"),
+  X402_FACILITATOR_MODE: z.enum(["gateway", "mock"]).default("gateway"),
   X402_NETWORK: z.string().min(1).default("eip155:5042002"),
   X402_SCHEME: z.string().min(1).default("exact"),
   X402_ASSET: z

@@ -2,6 +2,7 @@ export type AgentArgs = {
   query: string;
   budgetUsdc?: number;
   apiUrl?: string;
+  paymentMode?: "gateway" | "mock";
   dryRun: boolean;
 };
 
@@ -19,6 +20,7 @@ export const parseArgs = (argv = process.argv.slice(2)): AgentArgs => {
   let query = "Arc nanopayments creator monetization";
   let budgetUsdc: number | undefined;
   let apiUrl: string | undefined;
+  let paymentMode: AgentArgs["paymentMode"];
   let dryRun = false;
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -39,6 +41,12 @@ export const parseArgs = (argv = process.argv.slice(2)): AgentArgs => {
       case "--api-url":
         apiUrl = readValue(argv, index, arg);
         index += 1;
+        break;
+      case "--mock-payment":
+        paymentMode = "mock";
+        break;
+      case "--gateway-payment":
+        paymentMode = "gateway";
         break;
       case "--dry-run":
         dryRun = true;
@@ -61,5 +69,6 @@ export const parseArgs = (argv = process.argv.slice(2)): AgentArgs => {
     dryRun,
     ...(budgetUsdc === undefined ? {} : { budgetUsdc }),
     ...(apiUrl === undefined ? {} : { apiUrl }),
+    ...(paymentMode === undefined ? {} : { paymentMode }),
   };
 };

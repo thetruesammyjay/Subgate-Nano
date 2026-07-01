@@ -1,7 +1,11 @@
 import { parseArgs } from "./args.js";
 import { contentUrl, fetchCatalog, fetchQuote, parseUnlockResponse } from "./catalog.js";
 import { loadAgentEnv } from "./env.js";
-import { createGatewayPaymentClient, ensureGatewayBalance } from "./gateway.js";
+import {
+  createGatewayPaymentClient,
+  createLocalMockPaymentClient,
+  ensureGatewayBalance,
+} from "./gateway.js";
 import { scoreRelevance } from "./relevance.js";
 
 type Decision = "PAY" | "SKIP";
@@ -15,7 +19,15 @@ const main = async () => {
   const args = parseArgs();
   const apiUrl = args.apiUrl ?? env.SUBGATE_API_URL;
   const budgetUsdc = args.budgetUsdc ?? env.AGENT_DEFAULT_BUDGET_USDC;
-  const gateway = createGatewayPaymentClient(env.BUYER_PRIVATE_KEY as `0x${string}`);
+  const paymentMode = args.paymentMode ?? env.AGENT_PAYMENT_MODE;
+  const gateway =
+    paymentMode === "mock"
+      ? createLocalMockPaymentClient({
+          payerAddress: env.AGENT_MOCK_PAYER_ADDRESS,
+        })
+      : createGatewayPaymentClient(
+          requireBuyerPrivateKey(env.BUYER_PRIVATE_KEY),
+        );
 
   let spentUsdc = 0;
 
@@ -23,8 +35,9 @@ const main = async () => {
   console.log(`Query: "${args.query}"`);
   console.log(`Session budget: ${formatUsdc(budgetUsdc)} USDC`);
   console.log(`API: ${apiUrl}`);
+  console.log(`Payment mode: ${paymentMode}`);
 
-  if (!args.dryRun) {
+  if (!args.dryRun && paymentMode === "gateway") {
     await ensureGatewayBalance(gateway, {
       minBalanceUsdc: env.AGENT_MIN_GATEWAY_BALANCE_USDC,
       depositAmountUsdc: env.AGENT_DEPOSIT_AMOUNT_USDC,
@@ -92,6 +105,18 @@ const main = async () => {
   console.log("Session complete.");
   console.log(`Paid: ${formatUsdc(spentUsdc)} USDC`);
   console.log(`Remaining budget: ${formatUsdc(Math.max(0, budgetUsdc - spentUsdc))} USDC`);
+};
+
+const requireBuyerPrivateKey = (
+  privateKey: string | undefined,
+): `0x${string}` => {
+  if (!privateKey) {
+    throw new Error(
+      "BUYER_PRIVATE_KEY is required unless AGENT_PAYMENT_MODE=mock or --mock-payment is used.",
+    );
+  }
+
+  return privateKey as `0x${string}`;
 };
 
 main().catch((error) => {

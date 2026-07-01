@@ -12,6 +12,7 @@ import type {
 } from "@subgate/types";
 import { buildApiApp } from "./app.js";
 import { loadApiEnv } from "./env.js";
+import { loadApiLocalEnvFiles } from "./local-env.js";
 
 const encodeBase64Json = (value: unknown): string => {
   return Buffer.from(JSON.stringify(value), "utf8").toString("base64");
@@ -41,6 +42,8 @@ const buildSignedPaymentPayload = (
   };
 };
 
+loadApiLocalEnvFiles();
+
 const env = loadApiEnv({
   ...process.env,
   JWT_SECRET:
@@ -55,7 +58,7 @@ const pool = createDbPool(env.DATABASE_URL);
 const db = createDatabase(pool);
 
 try {
-  await seedDemoData(db);
+  const seed = await seedDemoData(db);
 
   const facilitator = {
     async settle(
@@ -225,6 +228,34 @@ try {
 
     if (!unlockBody.accessGrantId || !unlockBody.paymentId || !unlockBody.body) {
       throw new Error("Unlocked response did not include grant, payment, and body.");
+    }
+
+    const statsResponse = await app.inject({
+      method: "GET",
+      url: `/creators/${seed.creatorId}/stats`,
+      headers: {
+        "x-subgate-internal-secret": env.INTERNAL_SERVICE_SECRET,
+      },
+    });
+
+    if (statsResponse.statusCode !== 200) {
+      throw new Error(
+        `Expected creator stats 200, received ${statsResponse.statusCode}.`,
+      );
+    }
+
+    const statsBody = statsResponse.json<{
+      contentCount?: number;
+      settledPaymentCount?: number;
+      revenueUsdc?: number;
+    }>();
+
+    if (
+      typeof statsBody.contentCount !== "number" ||
+      typeof statsBody.settledPaymentCount !== "number" ||
+      typeof statsBody.revenueUsdc !== "number"
+    ) {
+      throw new Error("Creator stats did not include content and revenue totals.");
     }
 
     console.log(
