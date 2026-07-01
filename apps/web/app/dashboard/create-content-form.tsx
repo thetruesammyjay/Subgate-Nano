@@ -1,7 +1,13 @@
 "use client";
 
-import { ArrowRight, CheckCircle2, Wand2 } from "lucide-react";
-import { useState, useTransition } from "react";
+import {
+  ArrowRight,
+  CheckCircle2,
+  Copy,
+  ExternalLink,
+  Wand2,
+} from "lucide-react";
+import { useState } from "react";
 import type { ContentItem, Creator, PricingModel } from "@subgate/types";
 
 type CreateContentFormProps = {
@@ -39,6 +45,7 @@ export function CreateContentForm({ creators }: CreateContentFormProps) {
   const [creatorId, setCreatorId] = useState(creators[0]?.id ?? "");
   const [title, setTitle] = useState("");
   const [slug, setSlug] = useState("");
+  const [isSlugDirty, setIsSlugDirty] = useState(false);
   const [summary, setSummary] = useState("");
   const [body, setBody] = useState("");
   const [pricingType, setPricingType] = useState<PricingType>("per_access");
@@ -46,23 +53,78 @@ export function CreateContentForm({ creators }: CreateContentFormProps) {
   const [durationSeconds, setDurationSeconds] = useState("86400");
   const [createdContent, setCreatedContent] = useState<ContentItem | null>(null);
   const [message, setMessage] = useState<string | null>(null);
-  const [isPending, startTransition] = useTransition();
-  const canSubmit = creators.length > 0 && title && slug && summary && body;
+  const [hasCopied, setHasCopied] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const createdPath = createdContent ? `/content/${createdContent.slug}` : "";
+  const canSubmit = Boolean(
+    creators.length > 0 &&
+      title.trim() &&
+      slug.trim() &&
+      summary.trim() &&
+      body.trim() &&
+      Number(amount) > 0,
+  );
 
-  const generateSlug = () => {
-    setSlug(slugify(title));
+  const clearResult = () => {
+    setCreatedContent(null);
+    setHasCopied(false);
+    setMessage(null);
   };
 
-  const submit = () => {
+  const generateSlug = () => {
+    clearResult();
+    setSlug(slugify(title));
+    setIsSlugDirty(false);
+  };
+
+  const changeTitle = (value: string) => {
+    clearResult();
+    setTitle(value);
+
+    if (!isSlugDirty) {
+      setSlug(slugify(value));
+    }
+  };
+
+  const changeSlug = (value: string) => {
+    clearResult();
+    setIsSlugDirty(true);
+    setSlug(slugify(value));
+  };
+
+  const copyCreatedLink = async () => {
+    if (!createdContent) {
+      return;
+    }
+
+    const origin = globalThis.location?.origin ?? "";
+
+    try {
+      await navigator.clipboard.writeText(`${origin}${createdPath}`);
+      setHasCopied(true);
+    } catch {
+      setMessage("Could not copy the link. Open the content and copy it from the address bar.");
+    }
+  };
+
+  const submit = async () => {
     setMessage(null);
     setCreatedContent(null);
+    setHasCopied(false);
+    setIsSubmitting(true);
 
-    startTransition(async () => {
+    try {
       const price = Number(amount);
       const duration = Number(durationSeconds);
+      const normalizedSlug = slugify(slug);
 
-      if (!Number.isFinite(price) || price < 0) {
-        setMessage("Price must be a valid non-negative number.");
+      if (!normalizedSlug) {
+        setMessage("Add a URL slug before publishing.");
+        return;
+      }
+
+      if (!Number.isFinite(price) || price <= 0) {
+        setMessage("Price must be greater than zero.");
         return;
       }
 
@@ -78,16 +140,16 @@ export function CreateContentForm({ creators }: CreateContentFormProps) {
         },
         body: JSON.stringify({
           creatorId,
-          title,
-          slug,
-          summary,
-          body,
+          title: title.trim(),
+          slug: normalizedSlug,
+          summary: summary.trim(),
+          body: body.trim(),
           pricing: buildPricing(pricingType, price, duration),
           isActive: true,
         }),
       });
 
-      const payload = await response.json();
+      const payload = await response.json().catch(() => null);
 
       if (!response.ok) {
         setMessage(
@@ -99,8 +161,13 @@ export function CreateContentForm({ creators }: CreateContentFormProps) {
       }
 
       setCreatedContent(payload as ContentItem);
+      setSlug(normalizedSlug);
       setMessage("Content published and available in the live catalog.");
-    });
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Failed to publish content.");
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -115,7 +182,13 @@ export function CreateContentForm({ creators }: CreateContentFormProps) {
       <div className="form-grid">
         <label>
           <span>Creator</span>
-          <select value={creatorId} onChange={(event) => setCreatorId(event.target.value)}>
+          <select
+            value={creatorId}
+            onChange={(event) => {
+              clearResult();
+              setCreatorId(event.target.value);
+            }}
+          >
             {creators.map((creator) => (
               <option key={creator.id} value={creator.id}>
                 {creator.displayName}
@@ -128,7 +201,10 @@ export function CreateContentForm({ creators }: CreateContentFormProps) {
           <span>Pricing Type</span>
           <select
             value={pricingType}
-            onChange={(event) => setPricingType(event.target.value as PricingType)}
+            onChange={(event) => {
+              clearResult();
+              setPricingType(event.target.value as PricingType);
+            }}
           >
             <option value="per_access">Per access</option>
             <option value="per_citation">Per citation</option>
@@ -142,7 +218,7 @@ export function CreateContentForm({ creators }: CreateContentFormProps) {
         <span>Title</span>
         <input
           value={title}
-          onChange={(event) => setTitle(event.target.value)}
+          onChange={(event) => changeTitle(event.target.value)}
           placeholder="Premium Arc settlement memo"
         />
       </label>
@@ -152,7 +228,7 @@ export function CreateContentForm({ creators }: CreateContentFormProps) {
         <div className="slug-control">
           <input
             value={slug}
-            onChange={(event) => setSlug(event.target.value)}
+            onChange={(event) => changeSlug(event.target.value)}
             placeholder="premium-arc-settlement-memo"
           />
           <button className="mini-button" type="button" onClick={generateSlug}>
@@ -165,7 +241,10 @@ export function CreateContentForm({ creators }: CreateContentFormProps) {
         <span>Summary</span>
         <textarea
           value={summary}
-          onChange={(event) => setSummary(event.target.value)}
+          onChange={(event) => {
+            clearResult();
+            setSummary(event.target.value);
+          }}
           placeholder="Short locked preview for the catalog."
         />
       </label>
@@ -174,7 +253,10 @@ export function CreateContentForm({ creators }: CreateContentFormProps) {
         <span>Body</span>
         <textarea
           value={body}
-          onChange={(event) => setBody(event.target.value)}
+          onChange={(event) => {
+            clearResult();
+            setBody(event.target.value);
+          }}
           placeholder="The unlocked content body readers receive after settlement."
         />
       </label>
@@ -185,7 +267,10 @@ export function CreateContentForm({ creators }: CreateContentFormProps) {
           <input
             inputMode="decimal"
             value={amount}
-            onChange={(event) => setAmount(event.target.value)}
+            onChange={(event) => {
+              clearResult();
+              setAmount(event.target.value);
+            }}
           />
         </label>
 
@@ -195,7 +280,10 @@ export function CreateContentForm({ creators }: CreateContentFormProps) {
             disabled={pricingType !== "timed"}
             inputMode="numeric"
             value={durationSeconds}
-            onChange={(event) => setDurationSeconds(event.target.value)}
+            onChange={(event) => {
+              clearResult();
+              setDurationSeconds(event.target.value);
+            }}
           />
         </label>
       </div>
@@ -203,19 +291,36 @@ export function CreateContentForm({ creators }: CreateContentFormProps) {
       <button
         className="button primary"
         type="button"
-        disabled={!canSubmit || isPending}
+        disabled={!canSubmit || isSubmitting}
         onClick={submit}
       >
-        Publish To API <ArrowRight aria-hidden="true" size={16} />
+        {isSubmitting ? "Publishing" : "Publish Content"}{" "}
+        <ArrowRight aria-hidden="true" size={16} />
       </button>
 
       {message && <p className="dashboard-message">{message}</p>}
 
       {createdContent && (
-        <a className="created-content-link" href={`/content/${createdContent.slug}`}>
-          <CheckCircle2 aria-hidden="true" size={17} />
-          View {createdContent.title}
-        </a>
+        <div className="created-content-panel">
+          <div>
+            <span>
+              <CheckCircle2 aria-hidden="true" size={16} /> Ready To Sell
+            </span>
+            <strong>{createdContent.title}</strong>
+            <code>{createdPath}</code>
+          </div>
+
+          <div className="created-content-actions">
+            <button className="mini-button" type="button" onClick={copyCreatedLink}>
+              <Copy aria-hidden="true" size={15} />
+              {hasCopied ? "Copied" : "Copy Link"}
+            </button>
+            <a className="created-content-link" href={createdPath}>
+              <ExternalLink aria-hidden="true" size={15} />
+              Open
+            </a>
+          </div>
+        </div>
       )}
     </section>
   );
