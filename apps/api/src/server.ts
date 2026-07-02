@@ -1,7 +1,9 @@
 import { createDatabase, createDbPool } from "@subgate/db";
 import { buildApiApp } from "./app.js";
 import { loadApiEnv } from "./env.js";
+import { loadApiLocalEnvFiles } from "./local-env.js";
 
+loadApiLocalEnvFiles();
 const env = loadApiEnv();
 const pool = createDbPool(env.DATABASE_URL);
 const db = createDatabase(pool);

@@ -1,6 +1,8 @@
 import { buildTelegramBotApp } from "./app.js";
 import { loadTelegramBotEnv } from "./env.js";
+import { loadTelegramBotLocalEnvFiles } from "./local-env.js";
 
+loadTelegramBotLocalEnvFiles();
 const env = loadTelegramBotEnv();
 const app = await buildTelegramBotApp({ env });
 

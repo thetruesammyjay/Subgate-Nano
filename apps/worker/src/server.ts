@@ -4,9 +4,11 @@ import { createDatabase, createDbPool } from "@subgate/db";
 import { workerHeartbeatSchema, type WorkerHeartbeat } from "@subgate/types";
 import { createStreamingWorkerRepository } from "./db-repository.js";
 import { loadWorkerEnv } from "./env.js";
+import { loadWorkerLocalEnvFiles } from "./local-env.js";
 import type { StreamingWorkerTickResult } from "./streaming-worker.js";
 import { StreamingWorker } from "./streaming-worker.js";
 
+loadWorkerLocalEnvFiles();
 const env = loadWorkerEnv();
 const pool = createDbPool(env.DATABASE_URL);
 const db = createDatabase(pool);

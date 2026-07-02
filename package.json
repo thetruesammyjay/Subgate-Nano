@@ -6,6 +6,7 @@
   "scripts": {
     "build": "turbo run build",
     "dev": "turbo run dev --parallel",
+    "dev:all": "turbo run dev --filter=@subgate/api --filter=@subgate/web --filter=@subgate/worker --filter=@subgate/sidecar --filter=@subgate/bot-telegram",
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
     "db:generate": "pnpm --filter @subgate/db generate",
@@ -15,7 +16,8 @@
     "smoke:api": "pnpm --filter @subgate/api smoke",
     "smoke:bot-telegram": "pnpm --filter @subgate/bot-telegram smoke",
     "smoke:worker": "pnpm --filter @subgate/worker smoke",
-    "smoke:sidecar": "pnpm --filter @subgate/sidecar smoke"
+    "smoke:sidecar": "pnpm --filter @subgate/sidecar smoke",
+    "smoke:local": "node tools/smoke-local.mjs"
   },
   "devDependencies": {
     "turbo": "^2.0.12",

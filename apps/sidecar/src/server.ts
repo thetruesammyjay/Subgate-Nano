@@ -1,6 +1,8 @@
 import { buildSidecarApp } from "./app.js";
 import { loadSidecarEnv } from "./env.js";
+import { loadSidecarLocalEnvFiles } from "./local-env.js";
 
+loadSidecarLocalEnvFiles();
 const env = loadSidecarEnv();
 const app = await buildSidecarApp({ env });
 
