@@ -4,9 +4,9 @@ import { Menu, X, Zap } from "lucide-react";
 import { useState } from "react";
 
 const navItems = [
-  { href: "/#flow", label: "Flow" },
+  { href: "/#flow", label: "How it works" },
   { href: "/dashboard", label: "Dashboard" },
-  { href: "/#agents", label: "Agents" },
+  { href: "/#streams", label: "Streams" },
   { href: "/#footer", label: "Links" },
 ];
 

@@ -1,9 +1,9 @@
-import { Bot, CircleDollarSign, Gauge, LockKeyhole, RadioTower } from "lucide-react";
+import { CircleDollarSign, Gauge, LockKeyhole, Play, RadioTower } from "lucide-react";
 
 const icons = [
   { Icon: LockKeyhole, className: "float-icon one" },
   { Icon: CircleDollarSign, className: "float-icon two" },
-  { Icon: Bot, className: "float-icon three" },
+  { Icon: Play, className: "float-icon three" },
   { Icon: Gauge, className: "float-icon four" },
   { Icon: RadioTower, className: "float-icon five" },
 ];

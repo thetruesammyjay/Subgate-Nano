@@ -6,17 +6,15 @@
   "scripts": {
     "build": "turbo run build",
     "dev": "turbo run dev --parallel",
-    "dev:all": "turbo run dev --filter=@subgate/api --filter=@subgate/web --filter=@subgate/worker --filter=@subgate/sidecar --filter=@subgate/bot-telegram",
+    "dev:all": "pnpm dev:api & turbo run dev --filter=@subgate/web --filter=@subgate/worker",
+    "dev:api": "uv run --directory apps/api fastapi dev src/subgate_api/main.py --host 0.0.0.0 --port 3001",
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
-    "db:generate": "pnpm --filter @subgate/db generate",
-    "db:migrate": "pnpm --filter @subgate/db migrate",
-    "db:seed": "pnpm --filter @subgate/db seed",
-    "demo:x402:local": "pnpm --filter @subgate/api demo:x402",
-    "smoke:api": "pnpm --filter @subgate/api smoke",
-    "smoke:bot-telegram": "pnpm --filter @subgate/bot-telegram smoke",
+    "db:migrate": "uv run --directory apps/api alembic upgrade head",
+    "db:revision": "uv run --directory apps/api alembic revision --autogenerate -m",
+    "db:seed": "uv run --directory apps/api python src/subgate_api/seed.py",
+    "smoke:api": "uv run --directory apps/api python -m pytest",
     "smoke:worker": "pnpm --filter @subgate/worker smoke",
-    "smoke:sidecar": "pnpm --filter @subgate/sidecar smoke",
     "smoke:local": "node tools/smoke-local.mjs"
   },
   "devDependencies": {
