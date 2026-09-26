@@ -69,6 +69,7 @@ The application persists creators, streams, viewing sessions, playback/access gr
 
 ```env
 DATABASE_URL=
+SUBGATE_DB_SCHEMA=subgate_nano
 REDIS_URL=
 ARBITRUM_RPC_URL=
 ARBITRUM_CHAIN_ID=421614
@@ -77,21 +78,37 @@ PLAYBACK_TOKEN_SECRET=
 STREAMING_HEARTBEAT_INTERVAL_SECONDS=5
 STREAMING_SESSION_TIMEOUT_SECONDS=30
 STREAMING_SETTLEMENT_THRESHOLD_USDC=0.10
+SUBGATE_SETTLEMENT_MODE=local
+X402_FACILITATOR_URL=https://gateway-api-testnet.circle.com
+X402_NETWORK=eip155:421614
+X402_ASSET=
+X402_GATEWAY_WALLET_ADDRESS=
+CREATOR_AUTH_CHALLENGE_TTL_SECONDS=300
+CREATOR_SESSION_TTL_SECONDS=604800
 ```
 
 The API uses `uv`. Run it with `uv run --directory apps/api fastapi dev src/subgate_api/main.py`.
 
 ## Database migrations
 
-FastAPI owns the database. SQLAlchemy models live in `apps/api/src/subgate_api/models`, repositories live in `apps/api/src/subgate_api/repositories`, and Alembic revisions live in `apps/api/alembic/versions`.
+FastAPI owns the database. SQLAlchemy models live in `apps/api/src/subgate_api/models`, repositories live in `apps/api/src/subgate_api/repositories`, and Alembic revisions live in `apps/api/alembic/versions`. PostgreSQL migrations and API connections use the isolated `SUBGATE_DB_SCHEMA` schema (default `subgate_nano`) so an older public schema can remain intact during the migration.
 
 ```bash
-pnpm db:revision -- "add streams and viewing sessions"
+# From apps/api in PowerShell
+cd apps/api
+.\.venv\Scripts\python.exe -m alembic -c alembic.ini revision --autogenerate -m "add streams and viewing sessions"
+.\.venv\Scripts\python.exe -m alembic -c alembic.ini upgrade head
+
+# Or from the repository root
 pnpm db:migrate
 pnpm db:seed
 ```
 
+Creator authentication uses an EIP-191 wallet signature challenge. The API stores only one-time challenge records and SHA-256 hashes of opaque creator session tokens; raw bearer tokens are returned only at verification time.
+
 The hackathon target is Arbitrum Sepolia; production targets Arbitrum One.
+
+Local development uses the deterministic settlement gateway. Set `SUBGATE_SETTLEMENT_MODE=circle` to require an x402 `PAYMENT-SIGNATURE` and settle through the configured facilitator. Pay-per-view session creation and metered session stopping return `402 Payment Required` with a base64-encoded `PAYMENT-REQUIRED` header until a matching signature is supplied.
 
 ## MVP boundaries
 

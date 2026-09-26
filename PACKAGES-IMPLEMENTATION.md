@@ -95,13 +95,20 @@ def issue_playback_claims(session: ViewingSession, ttl_seconds: int) -> Playback
 ## First API slices
 
 ```text
+POST /auth/challenge                   # request wallet sign-in message
+POST /auth/verify                      # verify signature and issue bearer token
+GET  /auth/me                          # current creator
+POST /auth/logout                      # revoke current creator session
 GET  /streams
 GET  /streams/{slug}
+GET  /streams/{slug}/payment-requirement
 POST /streams                         # creator only
 POST /streams/{stream_id}/sessions    # start PPV or metered session
 POST /sessions/{session_id}/heartbeat
 POST /sessions/{session_id}/stop
 GET  /sessions/{session_id}/receipt
 ```
+
+The x402 seam is also available for Circle mode: pay-per-view starts and metered stops challenge with `402 Payment Required`, validate the supplied signature, and persist the facilitator transaction reference.
 
 The first implementation milestone is complete when a local fake payment gateway can create a metered session, accept validated heartbeats, stop it, and return a correct receipt—all through these FastAPI endpoints and with no TypeScript backend dependency.

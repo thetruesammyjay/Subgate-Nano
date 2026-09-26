@@ -2,14 +2,19 @@ from __future__ import annotations
 
 import asyncio
 import os
+from pathlib import Path
 from logging.config import fileConfig
 
 from alembic import context
-from sqlalchemy import pool
+from dotenv import load_dotenv
+from sqlalchemy import pool, text
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
-from subgate_api.models.base import Base
+from subgate_api.models import Base
+from subgate_api.config import database_schema, normalize_async_database_url
+
+load_dotenv(Path(__file__).resolve().parents[1] / ".env")
 
 config = context.config
 if config.config_file_name is not None:
@@ -17,19 +22,38 @@ if config.config_file_name is not None:
 
 database_url = os.getenv("DATABASE_URL")
 if database_url:
-    config.set_main_option("sqlalchemy.url", database_url.replace("postgresql://", "postgresql+asyncpg://", 1))
+    config.set_main_option("sqlalchemy.url", normalize_async_database_url(database_url))
 
 target_metadata = Base.metadata
+schema = database_schema()
 
 
 def run_migrations_offline() -> None:
-    context.configure(url=config.get_main_option("sqlalchemy.url"), target_metadata=target_metadata, literal_binds=True)
+    context.configure(
+        url=config.get_main_option("sqlalchemy.url"),
+        target_metadata=target_metadata,
+        literal_binds=True,
+        version_table_schema=schema,
+    )
+    context.execute(f'CREATE SCHEMA IF NOT EXISTS "{schema}"')
+    context.execute(f'SET search_path TO "{schema}"')
     with context.begin_transaction():
         context.run_migrations()
 
 
 def do_run_migrations(connection: Connection) -> None:
-    context.configure(connection=connection, target_metadata=target_metadata, compare_type=True)
+    if connection.dialect.name == "postgresql":
+        connection.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{schema}"'))
+        connection.execute(text(f'SET search_path TO "{schema}"'))
+        # Close the implicit transaction opened by schema setup so Alembic
+        # owns and commits the migration transaction below.
+        connection.commit()
+    context.configure(
+        connection=connection,
+        target_metadata=target_metadata,
+        compare_type=True,
+        version_table_schema=schema if connection.dialect.name == "postgresql" else None,
+    )
     with context.begin_transaction():
         context.run_migrations()
 

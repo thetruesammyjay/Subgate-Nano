@@ -10,7 +10,7 @@
     "dev:api": "uv run --directory apps/api fastapi dev src/subgate_api/main.py --host 0.0.0.0 --port 3001",
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
-    "db:migrate": "uv run --directory apps/api alembic upgrade head",
+    "db:migrate": "uv run --directory apps/api python -m alembic -c alembic.ini upgrade head",
     "db:revision": "uv run --directory apps/api alembic revision --autogenerate -m",
     "db:seed": "uv run --directory apps/api python src/subgate_api/seed.py",
     "smoke:api": "uv run --directory apps/api python -m pytest",

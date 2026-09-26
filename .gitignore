@@ -33,6 +33,12 @@ yarn-error.log*
 # TypeScript
 *.tsbuildinfo
 
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+
 # OS / editor noise
 .DS_Store
 Thumbs.db
