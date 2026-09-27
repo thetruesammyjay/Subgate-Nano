@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowRight, Check, Link2, WalletCards } from "lucide-react";
+import { ArrowRight, Check, Link2, WalletCards } from "../../../components/dashboards/dashboard-icons";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { FormEvent, useState } from "react";

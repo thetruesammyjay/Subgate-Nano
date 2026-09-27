@@ -1,7 +1,7 @@
 "use client";
 
-import { RadioTower, RefreshCw } from "lucide-react";
 import { useEffect, useState } from "react";
+import { RadioTower, RefreshCw } from "../dashboards/dashboard-icons";
 import type { Stream } from "../../types/stream";
 import { StreamCard } from "./stream-card";
 

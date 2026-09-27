@@ -1,4 +1,4 @@
-import { CircleDollarSign, Gauge, LockKeyhole, Play, RadioTower } from "lucide-react";
+import { CircleDollarSign, Gauge, LockKeyhole, Play, RadioTower } from "./dashboards/dashboard-icons";
 
 const icons = [
   { Icon: LockKeyhole, className: "float-icon one" },

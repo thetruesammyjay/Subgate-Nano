@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowRight, Check, WalletCards } from "lucide-react";
+import { ArrowRight, Check, WalletCards } from "../../components/dashboards/dashboard-icons";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";

@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowRight, LockKeyhole } from "lucide-react";
+import { ArrowRight, LockKeyhole } from "../../../components/dashboards/dashboard-icons";
 import { useSearchParams } from "next/navigation";
 import { FormEvent, useState } from "react";
 

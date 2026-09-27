@@ -5,15 +5,11 @@ Subgate Nano web application. It is based on `DESIGN.md` and separates the
 public viewer experience, creator dashboard, and admin dashboard while keeping
 shared visual primitives in one place.
 
-The tree below is a target map, not a request to create every file at once.
-Entries marked `[current]` already exist. Entries marked `[planned]` describe
-the next implementation boundaries. Route-group folders such as `(auth)` and
-`(public)` are optional because they do not change the URL; they may be added
-when the route count grows.
-
-The planned entries are now physically scaffolded with safe placeholders. They
-define ownership and import boundaries, but do not represent finished pages or
-business logic yet.
+The tree below is a living implementation map. Entries marked `[current]`
+already exist; entries marked `[planned]` are future implementation boundaries
+and may or may not have a placeholder yet. Route-group folders such as `(auth)`
+and `(public)` are optional because they do not change the URL; they may be
+added when the route count grows.
 
 ## Target tree
 
@@ -23,6 +19,9 @@ apps/web/
 |   |-- layout.tsx                         # [current] Root metadata and providers
 |   |-- page.tsx                           # [current] Public landing page
 |   |-- globals.css                        # [current] Design tokens and global styles
+|   |-- how-it-works/page.tsx              # [current] Viewer access and payment flow
+|   |-- for-creators/page.tsx              # [current] Creator product overview
+|   |-- payments/page.tsx                  # [current] Pay-per-view and metered model guide
 |   |
 |   |-- login/                             # Legacy wallet sign-in entry
 |   |   |-- page.tsx
@@ -34,9 +33,9 @@ apps/web/
 |   |   `-- register/register-form.tsx
 |   |
 |   |-- streams/
-|   |   |-- page.tsx                       # [planned] Public stream directory
+|   |   |-- page.tsx                       # [current] Public stream directory
 |   |   `-- [slug]/
-|   |       |-- page.tsx                   # [planned] Stream viewer and paywall
+|   |       |-- page.tsx                   # [current] Stream viewer and paywall
 |   |       |-- loading.tsx                # [planned] Viewer loading state
 |   |       |-- error.tsx                  # [planned] Recoverable viewer error
 |   |       |-- not-found.tsx              # [planned] Unknown stream state
@@ -89,7 +88,7 @@ apps/web/
 |
 |-- components/
 |   |-- site-header.tsx                    # [current] Public navigation
-|   |-- site-footer.tsx                    # [planned] Public footer and legal links
+|   |-- site-footer.tsx                    # [current] Linked public footer
 |   |-- brand-mark.tsx                     # [planned] Logo/wordmark using public assets
 |   |-- floating-icons.tsx                 # [current] Decorative landing visuals
 |   |-- logout-button.tsx                  # [current] Session logout action
@@ -128,6 +127,7 @@ apps/web/
 |   |   `-- receipt-card.tsx
 |   |
 |   |-- dashboards/
+|   |   |-- dashboard-icons.tsx            # [current] Hugeicons aliases used by workspaces and public UI
 |   |   |-- metric-card.tsx                 # Live now, published, revenue, etc.
 |   |   |-- data-table.tsx
 |   |   |-- filter-bar.tsx
@@ -238,7 +238,7 @@ apps/web/
 
 | Area | URL examples | Primary shell | Data boundary |
 | --- | --- | --- | --- |
-| Public | `/`, `/streams`, `/streams/:slug` | `site-header` and public layout | Server components call the typed API client; viewer interactions use client components |
+| Public | `/`, `/how-it-works`, `/for-creators`, `/payments`, `/streams`, `/streams/:slug` | `site-header` and shared `site-footer` | Server components call the typed API client; viewer interactions use client components |
 | Auth | `/creator/login`, `/creator/register`, `/admin/login` | Role-specific auth layouts | Next route handlers proxy FastAPI auth endpoints and set separate HttpOnly creator/admin cookies |
 | Creator | `/dashboard`, `/dashboard/streams`, `/dashboard/sessions` | Creator sidebar on desktop, bottom navigation on mobile | Protected FastAPI creator endpoints |
 | Admin | `/admin`, `/admin/creators`, `/admin/settlements` | Admin sidebar on desktop, drawer/bottom navigation on mobile | Protected FastAPI admin endpoints |

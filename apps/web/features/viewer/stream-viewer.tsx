@@ -1,8 +1,8 @@
 "use client";
 
-import { ArrowLeft, Check, CircleDollarSign, Clock3, LockKeyhole, Play, RadioTower, ShieldCheck, WalletCards } from "lucide-react";
 import Link from "next/link";
 import { useMemo, useState } from "react";
+import { ArrowLeft, Check, CircleDollarSign, Clock3, LockKeyhole, Play, RadioTower, ShieldCheck, WalletCards } from "../../components/dashboards/dashboard-icons";
 import type { Stream } from "../../types/stream";
 import type { ViewingSession } from "../../types/session";
 import { connectWallet, shortenAddress } from "../../lib/wallet";

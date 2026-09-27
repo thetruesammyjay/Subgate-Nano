@@ -1,5 +1,5 @@
-import { ArrowUpRight, Clock3, Play, RadioTower } from "lucide-react";
 import Link from "next/link";
+import { ArrowUpRight, Clock3, Play, RadioTower } from "../dashboards/dashboard-icons";
 import type { Stream } from "../../types/stream";
 
 const formatUsdc = (atomic: number) => `${(atomic / 1_000_000).toFixed(4)} USDC`;

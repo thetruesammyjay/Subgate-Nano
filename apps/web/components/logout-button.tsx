@@ -1,6 +1,6 @@
 "use client";
 
-import { LogOut } from "lucide-react";
+import { LogOut } from "./dashboards/dashboard-icons";
 import { useRouter } from "next/navigation";
 import { useTransition } from "react";
 

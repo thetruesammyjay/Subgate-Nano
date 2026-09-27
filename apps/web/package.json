@@ -14,7 +14,6 @@
     "@hugeicons/react": "^1.1.10",
     "@circle-fin/x402-batching": "^3.2.0",
     "@subgate/types": "workspace:*",
-    "lucide-react": "^0.468.0",
     "next": "^15.1.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"

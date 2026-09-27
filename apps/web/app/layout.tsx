@@ -3,7 +3,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Subgate Nano",
-  description: "Nanopayment access gateway for creator content and agent tools.",
+  description: "Premium video and livestream access with clear pay-per-view and metered USDC pricing.",
   icons: {
     icon: "/subgate-ico.png",
   },
