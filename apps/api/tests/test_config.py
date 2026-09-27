@@ -4,7 +4,7 @@ import json
 
 import httpx
 
-from subgate_api.config import database_schema, normalize_async_database_url
+from subgate_api.config import cors_origins, database_schema, frontend_url, normalize_async_database_url
 from subgate_api.services.settlement import CircleGatewaySettlement, PaymentRequirement
 
 
@@ -28,6 +28,16 @@ def test_database_schema_rejects_unsafe_identifier(monkeypatch) -> None:
         assert "simple PostgreSQL identifier" in str(error)
     else:
         raise AssertionError("unsafe schema identifier was accepted")
+
+
+def test_cors_origins_accepts_multiple_frontends(monkeypatch) -> None:
+    monkeypatch.setenv("FRONTEND_URL", "http://localhost:3000/")
+    monkeypatch.delenv("CORS_ORIGIN", raising=False)
+    assert frontend_url() == "http://localhost:3000"
+    assert cors_origins() == ["http://localhost:3000"]
+
+    monkeypatch.setenv("CORS_ORIGIN", "https://app.example.com/, https://preview.example.com")
+    assert cors_origins() == ["https://app.example.com", "https://preview.example.com"]
 
 
 def test_circle_gateway_adapter_settles_matching_x402_payload() -> None:

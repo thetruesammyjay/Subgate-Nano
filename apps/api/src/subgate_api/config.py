@@ -6,6 +6,17 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 _SCHEMA_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
+def frontend_url() -> str:
+    """Return the canonical browser origin used by the API deployment."""
+    return os.getenv("FRONTEND_URL", "http://localhost:3000").strip().rstrip("/")
+
+
+def cors_origins() -> list[str]:
+    """Parse one or more comma-separated browser origins for CORS."""
+    raw = os.getenv("CORS_ORIGIN", frontend_url())
+    return [origin.strip().rstrip("/") for origin in raw.split(",") if origin.strip()]
+
+
 def normalize_async_database_url(value: str) -> str:
     """Convert a libpq URL into the asyncpg URL SQLAlchemy expects."""
     if value.startswith("postgresql://"):

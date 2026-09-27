@@ -1,13 +1,14 @@
 "use client";
 
-import { Menu, X, Zap } from "lucide-react";
+import { Menu, X } from "lucide-react";
+import Link from "next/link";
 import { useState } from "react";
+import { BrandMark } from "./brand-mark";
 
 const navItems = [
   { href: "/#flow", label: "How it works" },
-  { href: "/dashboard", label: "Dashboard" },
-  { href: "/#streams", label: "Streams" },
-  { href: "/#footer", label: "Links" },
+  { href: "/streams", label: "Explore streams" },
+  { href: "/dashboard", label: "Creator desk" },
 ];
 
 export function SiteHeader() {
@@ -15,19 +16,20 @@ export function SiteHeader() {
 
   return (
     <header className="site-header">
-      <a className="brand" href="/" aria-label="Subgate Nano home">
-        <span className="brand-mark">
-          <Zap aria-hidden="true" size={16} strokeWidth={1.7} />
-        </span>
-        <span>Subgate Nano</span>
-      </a>
+      <Link className="brand" href="/" aria-label="Subgate Nano home">
+        <span className="brand-wide"><BrandMark /></span>
+        <span className="brand-compact"><BrandMark compact /></span>
+      </Link>
 
       <nav className="desktop-nav" aria-label="Primary navigation">
         {navItems.map((item) => (
-          <a key={item.href} href={item.href}>
+          <Link key={item.href} href={item.href}>
             {item.label}
-          </a>
+          </Link>
         ))}
+        <Link className="nav-action" href="/dashboard/streams/new">
+          Create stream
+        </Link>
       </nav>
 
       <button
@@ -43,10 +45,13 @@ export function SiteHeader() {
 
       <div id="mobile-menu" className={`mobile-menu ${isOpen ? "open" : ""}`}>
         {navItems.map((item) => (
-          <a key={item.href} href={item.href} onClick={() => setIsOpen(false)}>
+          <Link key={item.href} href={item.href} onClick={() => setIsOpen(false)}>
             {item.label}
-          </a>
+          </Link>
         ))}
+        <Link className="mobile-menu-action" href="/dashboard/streams/new" onClick={() => setIsOpen(false)}>
+          Create stream
+        </Link>
       </div>
     </header>
   );

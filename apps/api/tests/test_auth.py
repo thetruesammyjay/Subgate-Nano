@@ -52,3 +52,42 @@ def test_invalid_signature_cannot_create_session(client: TestClient) -> None:
         },
     )
     assert response.status_code == 401
+
+
+def test_creator_can_register_and_sign_in_with_email(client: TestClient) -> None:
+    registered = client.post(
+        "/auth/creator/register",
+        json={
+            "email": "creator@example.com",
+            "password": "correct-horse-battery",
+            "username": "streamer",
+            "display_name": "Stream Creator",
+            "social_links": {"website": "https://example.com"},
+        },
+    )
+    assert registered.status_code == 201, registered.text
+    body = registered.json()
+    assert body["creator"]["wallet_address"] is None
+    assert body["creator"]["username"] == "streamer"
+    assert body["creator"]["approval_status"] == "pending"
+
+    logged_in = client.post(
+        "/auth/creator/login",
+        json={"email": "CREATOR@example.com", "password": "correct-horse-battery"},
+    )
+    assert logged_in.status_code == 200, logged_in.text
+    assert logged_in.json()["creator"]["email"] == "creator@example.com"
+
+    invalid = client.post(
+        "/auth/creator/login",
+        json={"email": "creator@example.com", "password": "not-the-password"},
+    )
+    assert invalid.status_code == 401
+
+
+def test_admin_login_route_is_registered(client: TestClient) -> None:
+    response = client.post(
+        "/auth/admin/login",
+        json={"email": "admin@example.com", "password": "not-the-password"},
+    )
+    assert response.status_code == 401

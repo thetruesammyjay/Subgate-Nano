@@ -10,9 +10,33 @@ StreamType = Literal["video", "livestream"]
 
 class CreatorResponse(BaseModel):
     id: UUID
-    wallet_address: str
+    wallet_address: str | None
     display_name: str
+    username: str | None
+    email: str | None
+    social_links: dict[str, str]
+    approval_status: Literal["pending", "approved", "rejected", "suspended"]
     created_at: datetime
+
+
+class CreatorProfileUpdateRequest(BaseModel):
+    display_name: str | None = Field(default=None, min_length=1, max_length=120)
+    username: str | None = Field(default=None, min_length=3, max_length=40)
+    social_links: dict[str, str] | None = None
+
+
+class CreatorSettingsResponse(BaseModel):
+    default_preview_seconds: int = Field(default=30, ge=0, le=3600)
+    email_notifications: bool = True
+    session_notifications: bool = False
+    settlement_notifications: bool = True
+
+
+class CreatorSettingsUpdateRequest(BaseModel):
+    default_preview_seconds: int | None = Field(default=None, ge=0, le=3600)
+    email_notifications: bool | None = None
+    session_notifications: bool | None = None
+    settlement_notifications: bool | None = None
 
 
 class AuthChallengeRequest(BaseModel):
@@ -38,6 +62,39 @@ class AuthResponse(BaseModel):
     token_type: Literal["bearer"] = "bearer"
     expires_at: datetime
     creator: CreatorResponse
+
+
+class CreatorRegisterRequest(BaseModel):
+    email: str = Field(min_length=5, max_length=320)
+    password: str = Field(min_length=8, max_length=128)
+    username: str = Field(min_length=3, max_length=40)
+    display_name: str | None = Field(default=None, min_length=1, max_length=120)
+    social_links: dict[str, str] = Field(default_factory=dict)
+    wallet_address: str | None = Field(default=None, min_length=42, max_length=42)
+
+
+class CreatorLoginRequest(BaseModel):
+    email: str = Field(min_length=5, max_length=320)
+    password: str = Field(min_length=8, max_length=128)
+
+
+class AdminResponse(BaseModel):
+    id: UUID
+    email: str
+    username: str
+    created_at: datetime
+
+
+class AdminLoginRequest(BaseModel):
+    email: str = Field(min_length=5, max_length=320)
+    password: str = Field(min_length=8, max_length=128)
+
+
+class AdminAuthResponse(BaseModel):
+    access_token: str
+    token_type: Literal["bearer"] = "bearer"
+    expires_at: datetime
+    admin: AdminResponse
 
 
 class PricingInput(BaseModel):
@@ -69,6 +126,15 @@ class CreateStreamRequest(BaseModel):
     free_preview_seconds: int = Field(default=0, ge=0, le=3600)
     playback_url: HttpUrl
     is_published: bool = True
+
+
+class UpdateStreamRequest(BaseModel):
+    title: str | None = Field(default=None, min_length=1, max_length=160)
+    description: str | None = None
+    pricing: PricingInput | None = None
+    free_preview_seconds: int | None = Field(default=None, ge=0, le=3600)
+    playback_url: HttpUrl | None = None
+    is_published: bool | None = None
 
 
 class PricingResponse(BaseModel):
@@ -141,3 +207,13 @@ class ReceiptResponse(BaseModel):
     settlement_status: Literal["settled"] = "settled"
     transaction_reference: str
     settled_at: datetime
+
+
+class CreatorStatusUpdateRequest(BaseModel):
+    approval_status: Literal["pending", "approved", "rejected", "suspended"]
+    reason: str | None = Field(default=None, max_length=500)
+
+
+class AdminStreamVisibilityRequest(BaseModel):
+    is_published: bool
+    reason: str | None = Field(default=None, max_length=500)

@@ -7,7 +7,7 @@
     "build": "turbo run build",
     "dev": "turbo run dev --parallel",
     "dev:all": "pnpm dev:api & turbo run dev --filter=@subgate/web --filter=@subgate/worker",
-    "dev:api": "uv run --directory apps/api fastapi dev src/subgate_api/main.py --host 0.0.0.0 --port 3001",
+    "dev:api": "uv run --directory apps/api uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload",
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
     "db:migrate": "uv run --directory apps/api python -m alembic -c alembic.ini upgrade head",

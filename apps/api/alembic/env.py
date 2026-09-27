@@ -44,9 +44,6 @@ def run_migrations_offline() -> None:
 def do_run_migrations(connection: Connection) -> None:
     if connection.dialect.name == "postgresql":
         connection.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{schema}"'))
-        connection.execute(text(f'SET search_path TO "{schema}"'))
-        # Close the implicit transaction opened by schema setup so Alembic
-        # owns and commits the migration transaction below.
         connection.commit()
     context.configure(
         connection=connection,
@@ -55,6 +52,8 @@ def do_run_migrations(connection: Connection) -> None:
         version_table_schema=schema if connection.dialect.name == "postgresql" else None,
     )
     with context.begin_transaction():
+        if connection.dialect.name == "postgresql":
+            connection.execute(text(f'SET LOCAL search_path TO "{schema}"'))
         context.run_migrations()
 
 

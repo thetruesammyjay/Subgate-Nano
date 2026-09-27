@@ -21,6 +21,7 @@ from subgate_api.schemas import (
     StartSessionRequest,
     StopSessionRequest,
     StreamResponse,
+    UpdateStreamRequest,
 )
 from subgate_api.services.settlement import (
     CircleGatewaySettlement,
@@ -138,6 +139,18 @@ async def load_stream(session: AsyncSession, stream_id: UUID) -> Stream:
     return stream
 
 
+async def load_creator_stream(session: AsyncSession, creator: Creator, stream_id: UUID) -> Stream:
+    result = await session.execute(
+        select(Stream)
+        .options(selectinload(Stream.creator))
+        .where(Stream.id == stream_id, Stream.creator_id == creator.id)
+    )
+    stream = result.scalar_one_or_none()
+    if stream is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Stream not found")
+    return stream
+
+
 async def load_session(session: AsyncSession, session_id: UUID) -> ViewingSession:
     result = await session.execute(select(ViewingSession).where(ViewingSession.id == session_id))
     viewing_session = result.scalar_one_or_none()
@@ -214,12 +227,36 @@ async def get_payment_requirement(
     }
 
 
+@router.get("/creator/streams", response_model=list[StreamResponse])
+async def list_creator_streams(
+    creator: Creator = Depends(get_current_creator),
+    session: AsyncSession = Depends(get_session),
+) -> list[StreamResponse]:
+    result = await session.execute(
+        select(Stream)
+        .options(selectinload(Stream.creator))
+        .where(Stream.creator_id == creator.id)
+        .order_by(Stream.created_at.desc())
+    )
+    return [stream_response(stream) for stream in result.scalars()]
+
+
 @router.post("/streams", response_model=StreamResponse, status_code=status.HTTP_201_CREATED)
 async def create_stream(
     payload: CreateStreamRequest,
     creator: Creator = Depends(get_current_creator),
     session: AsyncSession = Depends(get_session),
 ) -> StreamResponse:
+    if creator.approval_status != "approved":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Creator account must be approved before publishing streams",
+        )
+    if not creator.wallet_address:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Link a wallet before creating a stream",
+        )
     try:
         requested_wallet = normalize_wallet(payload.creator_wallet)
     except ValueError as error:
@@ -248,6 +285,53 @@ async def create_stream(
     await session.commit()
     await session.refresh(stream, attribute_names=["creator"])
     return stream_response(stream)
+
+
+@router.patch("/creator/streams/{stream_id}", response_model=StreamResponse)
+async def update_creator_stream(
+    stream_id: UUID,
+    payload: UpdateStreamRequest,
+    creator: Creator = Depends(get_current_creator),
+    session: AsyncSession = Depends(get_session),
+) -> StreamResponse:
+    stream = await load_creator_stream(session, creator, stream_id)
+    updates = payload.model_dump(exclude_unset=True)
+
+    if updates.get("is_published") is True and creator.approval_status != "approved":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Creator account must be approved before publishing streams",
+        )
+
+    if "title" in updates:
+        stream.title = updates["title"]
+    if "description" in updates:
+        stream.description = updates["description"]
+    if "free_preview_seconds" in updates:
+        stream.free_preview_seconds = updates["free_preview_seconds"]
+    if "playback_url" in updates:
+        stream.playback_url = str(updates["playback_url"])
+    if "is_published" in updates:
+        stream.is_published = updates["is_published"]
+    if payload.pricing is not None:
+        stream.pricing_model = payload.pricing.model
+        stream.price_atomic = payload.pricing.price_atomic
+        stream.rate_atomic_per_minute = payload.pricing.rate_atomic_per_minute
+
+    await session.commit()
+    await session.refresh(stream, attribute_names=["creator"])
+    return stream_response(stream)
+
+
+@router.delete("/creator/streams/{stream_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def unpublish_creator_stream(
+    stream_id: UUID,
+    creator: Creator = Depends(get_current_creator),
+    session: AsyncSession = Depends(get_session),
+) -> None:
+    stream = await load_creator_stream(session, creator, stream_id)
+    stream.is_published = False
+    await session.commit()
 
 
 @router.post("/streams/{stream_id}/sessions", response_model=SessionResponse, status_code=status.HTTP_201_CREATED)

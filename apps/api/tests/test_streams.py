@@ -52,6 +52,44 @@ def test_stream_creation_requires_authenticated_creator(client: TestClient, crea
     assert client.post("/streams", json=body, headers=creator_headers).status_code == 403
 
 
+def test_creator_can_list_update_and_unpublish_own_stream(
+    client: TestClient,
+    creator_headers: dict[str, str],
+) -> None:
+    stream = create_stream(client, {"model": "pay_per_view", "price_atomic": 1_500_000}, creator_headers)
+    stream_id = stream["id"]
+
+    assert client.get("/creator/streams").status_code == 401
+    owned = client.get("/creator/streams", headers=creator_headers)
+    assert owned.status_code == 200
+    assert owned.json()[0]["id"] == stream_id
+
+    updated = client.patch(
+        f"/creator/streams/{stream_id}",
+        headers=creator_headers,
+        json={
+            "title": "Updated conference",
+            "pricing": {"model": "metered", "rate_atomic_per_minute": 600_000},
+            "is_published": False,
+        },
+    )
+    assert updated.status_code == 200, updated.text
+    assert updated.json()["title"] == "Updated conference"
+    assert updated.json()["pricing"]["model"] == "metered"
+    assert updated.json()["is_published"] is False
+
+    public = client.get(f"/streams/{stream['slug']}")
+    assert public.status_code == 404
+
+    republished = client.patch(
+        f"/creator/streams/{stream_id}",
+        headers=creator_headers,
+        json={"is_published": True},
+    )
+    assert republished.status_code == 200
+    assert client.delete(f"/creator/streams/{stream_id}", headers=creator_headers).status_code == 204
+
+
 def test_pay_per_view_session_returns_receipt(client: TestClient, creator_headers: dict[str, str]) -> None:
     stream = create_stream(client, {"model": "pay_per_view", "price_atomic": 1_500_000}, creator_headers)
     stream_id = stream["id"]

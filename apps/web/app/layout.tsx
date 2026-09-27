@@ -4,6 +4,9 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "Subgate Nano",
   description: "Nanopayment access gateway for creator content and agent tools.",
+  icons: {
+    icon: "/subgate-ico.png",
+  },
 };
 
 export default function RootLayout({

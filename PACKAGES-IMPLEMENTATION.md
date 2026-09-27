@@ -103,6 +103,9 @@ GET  /streams
 GET  /streams/{slug}
 GET  /streams/{slug}/payment-requirement
 POST /streams                         # creator only
+GET  /creator/streams                  # authenticated creator's streams
+PATCH /creator/streams/{stream_id}     # update owned stream
+DELETE /creator/streams/{stream_id}    # unpublish owned stream
 POST /streams/{stream_id}/sessions    # start PPV or metered session
 POST /sessions/{session_id}/heartbeat
 POST /sessions/{session_id}/stop

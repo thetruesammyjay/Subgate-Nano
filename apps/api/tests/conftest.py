@@ -9,7 +9,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from subgate_api.db import get_session
 from subgate_api.main import app
-from subgate_api.models import Base
+from subgate_api.models import AdminUser, Base
+from subgate_api.services.auth import hash_password
 
 TEST_CREATOR_PRIVATE_KEY = "0x" + "1".zfill(64)
 TEST_CREATOR_WALLET = Account.from_key(TEST_CREATOR_PRIVATE_KEY).address.lower()
@@ -23,6 +24,16 @@ def client() -> AsyncIterator[TestClient]:
     async def setup() -> None:
         async with engine.begin() as connection:
             await connection.run_sync(Base.metadata.create_all)
+        async with session_factory() as session:
+            session.add(
+                AdminUser(
+                    email="admin@example.com",
+                    username="admin",
+                    password_hash=hash_password("test-admin-password"),
+                    is_active=True,
+                )
+            )
+            await session.commit()
 
     async def override_session() -> AsyncIterator[AsyncSession]:
         async with session_factory() as session:
@@ -37,7 +48,17 @@ def client() -> AsyncIterator[TestClient]:
 
 
 @pytest.fixture()
-def creator_headers(client: TestClient) -> dict[str, str]:
+def admin_headers(client: TestClient) -> dict[str, str]:
+    response = client.post(
+        "/auth/admin/login",
+        json={"email": "admin@example.com", "password": "test-admin-password"},
+    )
+    assert response.status_code == 200, response.text
+    return {"Authorization": f"Bearer {response.json()['access_token']}"}
+
+
+@pytest.fixture()
+def creator_headers(client: TestClient, admin_headers: dict[str, str]) -> dict[str, str]:
     challenge = client.post("/auth/challenge", json={"wallet_address": TEST_CREATOR_WALLET})
     assert challenge.status_code == 200, challenge.text
     message = challenge.json()["message"]
@@ -55,4 +76,11 @@ def creator_headers(client: TestClient) -> dict[str, str]:
         },
     )
     assert verified.status_code == 200, verified.text
+    creator_id = verified.json()["creator"]["id"]
+    approved = client.patch(
+        f"/admin/creators/{creator_id}/status",
+        headers=admin_headers,
+        json={"approval_status": "approved", "reason": "Approved in test fixture"},
+    )
+    assert approved.status_code == 200, approved.text
     return {"Authorization": f"Bearer {verified.json()['access_token']}"}
