@@ -5,7 +5,8 @@ import Link from "next/link";
 import { FormEvent, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { Creator } from "../../types/auth";
-import type { PricingModel, StreamType } from "../../types/stream";
+import type { PricingModel, Stream, StreamType } from "../../types/stream";
+import { explorerTransactionUrl, registerStreamOnArbitrum } from "../../lib/arbitrum";
 
 const slugify = (value: string) => value.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 
@@ -22,7 +23,21 @@ export function StreamForm({ creator }: { creator: Creator }) {
   const [published, setPublished] = useState(true);
   const [message, setMessage] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+  const [pendingRegistration, setPendingRegistration] = useState<{ stream: Stream; transactionHash: string | null } | null>(null);
   const generatedSlug = useMemo(() => slug || slugify(title), [slug, title]);
+
+  const verifyRegistration = async (stream: Stream, transactionHash: string) => {
+    const response = await fetch(`/api/creator/streams/${stream.id}/chain-registration`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ transaction_hash: transactionHash, publish: published }),
+    });
+    const result = await response.json().catch(() => null);
+    if (!response.ok) throw new Error(result?.detail ?? result?.message ?? "The registration transaction could not be verified.");
+    setPendingRegistration(null);
+    router.push("/dashboard/streams");
+    router.refresh();
+  };
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -48,10 +63,35 @@ export function StreamForm({ creator }: { creator: Creator }) {
       const response = await fetch("/api/streams", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload) });
       const result = await response.json().catch(() => null);
       if (!response.ok) throw new Error(result?.detail ?? result?.message ?? "Unable to create the stream.");
+      if (result?.chain) {
+        setPendingRegistration({ stream: result as Stream, transactionHash: null });
+        setMessage("Registering this stream on Arbitrum Sepolia…");
+        const transactionHash = await registerStreamOnArbitrum(result as Stream, creator.wallet_address ?? "");
+        setPendingRegistration({ stream: result as Stream, transactionHash });
+        setMessage("Registration confirmed in your wallet. Verifying it with the Subgate API…");
+        await verifyRegistration(result as Stream, transactionHash);
+        return;
+      }
       router.push("/dashboard/streams");
       router.refresh();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Unable to create the stream.");
+    } finally {
+      setPending(false);
+    }
+  };
+
+  const retryRegistration = async () => {
+    if (!pendingRegistration) return;
+    setPending(true);
+    setMessage(null);
+    try {
+      const transactionHash = pendingRegistration.transactionHash
+        ?? await registerStreamOnArbitrum(pendingRegistration.stream, creator.wallet_address ?? "");
+      setPendingRegistration({ stream: pendingRegistration.stream, transactionHash });
+      await verifyRegistration(pendingRegistration.stream, transactionHash);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Unable to register this stream yet.");
     } finally {
       setPending(false);
     }
@@ -75,7 +115,12 @@ export function StreamForm({ creator }: { creator: Creator }) {
           <label className="toggle-row"><input type="checkbox" checked={published} onChange={(event) => setPublished(event.target.checked)} /><span><strong>Publish immediately</strong><small>Make this stream visible as soon as it is saved.</small></span><Check aria-hidden="true" size={16} /></label>
           <div className="editor-preview"><span className="utility-label">Viewer sees</span><strong>{title || "Your stream title"}</strong><p>{pricingModel === "pay_per_view" ? `${amount || "0.00"} USDC once` : `${amount || "0.00"} USDC per minute`}</p></div>
           {message ? <p className="form-message error-message">{message}</p> : null}
-          <button className="button primary button-wide" type="submit" disabled={pending}><Save aria-hidden="true" size={16} /> {pending ? "Saving..." : "Save stream"}</button>
+          {pendingRegistration ? <div className="form-message">
+            <p>{pendingRegistration.transactionHash ? "Your stream registration transaction has been submitted. Retry API verification without sending another transaction." : "The stream draft is saved. Retry the wallet registration when you are ready."}</p>
+            {pendingRegistration.transactionHash && pendingRegistration.stream.chain ? <a href={explorerTransactionUrl(pendingRegistration.stream.chain, pendingRegistration.transactionHash)} target="_blank" rel="noreferrer">View registration on Arbiscan</a> : null}
+            <button className="button secondary button-wide" type="button" disabled={pending} onClick={retryRegistration}>{pending ? "Working…" : pendingRegistration.transactionHash ? "Retry registration verification" : "Retry wallet registration"}</button>
+          </div> : null}
+          <button className="button primary button-wide" type="submit" disabled={pending || Boolean(pendingRegistration)}><Save aria-hidden="true" size={16} /> {pending ? "Saving..." : "Save stream"}</button>
         </aside>
       </form>
     </div>

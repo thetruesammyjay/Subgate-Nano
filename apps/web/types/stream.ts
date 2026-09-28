@@ -7,6 +7,15 @@ export type Pricing = {
   rate_atomic_per_minute: number | null;
 };
 
+export type ChainConfig = {
+  chain_id: number;
+  network: string;
+  payment_token_address: string;
+  registry_contract_address: string;
+  receipts_contract_address: string;
+  explorer_base_url: string;
+};
+
 export type Stream = {
   id: string;
   creator_wallet: string;
@@ -19,6 +28,9 @@ export type Stream = {
   free_preview_seconds: number;
   playback_url: string;
   is_published: boolean;
+  chain?: ChainConfig | null;
+  chain_stream_id?: string | null;
+  registry_transaction_hash?: string | null;
   created_at: string;
 };
 

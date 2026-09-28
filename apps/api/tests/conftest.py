@@ -17,7 +17,9 @@ TEST_CREATOR_WALLET = Account.from_key(TEST_CREATOR_PRIVATE_KEY).address.lower()
 
 
 @pytest.fixture()
-def client() -> AsyncIterator[TestClient]:
+def client(monkeypatch) -> AsyncIterator[TestClient]:
+    # Unit tests explicitly use the fake gateway; real app defaults to chain settlement.
+    monkeypatch.setenv("SUBGATE_SETTLEMENT_MODE", "local")
     engine = create_async_engine("sqlite+aiosqlite://")
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
 

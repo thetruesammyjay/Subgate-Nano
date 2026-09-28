@@ -4,7 +4,9 @@ version = "0.1.0"
 description = "Subgate Nano streaming API"
 requires-python = ">=3.12"
 dependencies = [
+  "eth-abi>=6,<7",
   "eth-account>=0.13,<1.0",
+  "eth-utils>=6,<7",
   "fastapi[standard]>=0.115,<1.0",
   "httpx>=0.27,<1.0",
   "python-dotenv>=1.0,<2.0",

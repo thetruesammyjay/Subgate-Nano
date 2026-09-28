@@ -84,7 +84,11 @@ apps/web/
 |           |-- logout/route.ts             # Creator session revocation proxy
 |           |-- challenge/route.ts          # Wallet challenge proxy
 |           |-- verify/route.ts             # Signature verification proxy
-|           `-- session/route.ts            # Current-user/session proxy
+|           `-- session/route.ts          # Current-user/session proxy
+|       |-- streams/
+|       |   `-- [slug]/sessions/route.ts  # Viewer payment/session proxy
+|       `-- creator/
+|           `-- streams/[streamId]/chain-registration/route.ts # Creator registration verification proxy
 |
 |-- components/
 |   |-- site-header.tsx                    # [current] Public navigation
@@ -188,7 +192,8 @@ apps/web/
 |   |-- api-errors.ts                      # [planned] Normalized API errors
 |   |-- auth.ts                            # [planned] Cookie/session helpers
 |   |-- wallet.ts                          # [planned] Wallet and signature helpers
-|   |-- x402.ts                            # [planned] Payment request/receipt helpers
+|   |-- arbitrum.ts                        # Arbitrum Sepolia wallet transactions and receipt links
+|   |-- x402.ts                            # [planned] Legacy x402 payment helpers
 |   |-- formatters.ts                      # [planned] Dates, money, addresses, durations
 |   |-- validators.ts                      # [planned] Shared client form validation
 |   |-- routes.ts                          # [planned] Central route constants

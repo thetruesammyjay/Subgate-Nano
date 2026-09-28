@@ -12,6 +12,7 @@ export type ViewingSession = {
   ended_at: string | null;
   playback_token?: string | null;
   playback_url?: string | null;
+  settlement_tx_hash?: string | null;
 };
 
 export type Receipt = {
@@ -23,5 +24,7 @@ export type Receipt = {
   currency: "USDC";
   settlement_status: "settled";
   transaction_reference: string;
+  chain_id?: number | null;
+  receipt_tx_hash?: string | null;
   settled_at: string;
 };

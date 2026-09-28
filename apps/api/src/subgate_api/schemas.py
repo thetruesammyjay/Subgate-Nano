@@ -137,6 +137,20 @@ class UpdateStreamRequest(BaseModel):
     is_published: bool | None = None
 
 
+class ChainConfigResponse(BaseModel):
+    chain_id: int
+    network: str
+    payment_token_address: str
+    registry_contract_address: str
+    receipts_contract_address: str
+    explorer_base_url: str
+
+
+class RegisterStreamOnchainRequest(BaseModel):
+    transaction_hash: str = Field(pattern=r"^0x[a-fA-F0-9]{64}$")
+    publish: bool = False
+
+
 class PricingResponse(BaseModel):
     model: PricingModel
     price_atomic: int | None
@@ -155,6 +169,9 @@ class StreamResponse(BaseModel):
     free_preview_seconds: int
     playback_url: str
     is_published: bool
+    chain: ChainConfigResponse | None = None
+    chain_stream_id: str | None = None
+    registry_transaction_hash: str | None = None
     created_at: datetime
 
 
@@ -162,6 +179,8 @@ class StartSessionRequest(BaseModel):
     viewer_wallet: str = Field(min_length=3, max_length=42)
     max_spend_atomic: int | None = Field(default=None, gt=0)
     payment_signature: str | None = Field(default=None, min_length=1)
+    session_id: UUID | None = None
+    settlement_tx_hash: str | None = Field(default=None, pattern=r"^0x[a-fA-F0-9]{64}$")
 
 
 class HeartbeatRequest(BaseModel):
@@ -187,6 +206,7 @@ class SessionResponse(BaseModel):
     ended_at: datetime | None
     playback_token: str | None = None
     playback_url: str | None = None
+    settlement_tx_hash: str | None = None
 
 
 class PlaybackTokenResponse(BaseModel):
@@ -206,6 +226,8 @@ class ReceiptResponse(BaseModel):
     currency: Literal["USDC"] = "USDC"
     settlement_status: Literal["settled"] = "settled"
     transaction_reference: str
+    chain_id: int | None = None
+    receipt_tx_hash: str | None = None
     settled_at: datetime
 
 

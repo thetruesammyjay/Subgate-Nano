@@ -32,11 +32,13 @@ After applying migrations, run `uv run python src/subgate_api/seed.py` from
 
 | Method | Path | Access | Purpose |
 | --- | --- | --- | --- |
+| GET | `/chain/status` | Public | Check the selected settlement mode, Arbitrum Sepolia RPC, and deployed token/contracts. |
 | GET | `/streams` | Public | List published streams. |
 | GET | `/streams/{slug}` | Public | Fetch a published stream by slug. |
-| GET | `/streams/{slug}/payment-requirement` | Public | Get the x402 payment requirement for a pay-per-view stream. |
-| POST | `/streams` | Approved creator | Create a stream. The submitted creator wallet must match the authenticated account. |
-| POST | `/streams/{stream_id}/sessions` | Public | Start a viewing session; Circle mode can return `402 Payment Required`. |
+| GET | `/streams/{slug}/payment-requirement` | Public | Get the configured Arbitrum USDC payment details or the legacy x402 requirement. |
+| POST | `/streams` | Approved creator | Create a stream. In Arbitrum mode it remains unpublished until its registry transaction is verified. |
+| POST | `/creator/streams/{stream_id}/chain-registration` | Creator owner | Verify the creator-signed registry transaction and optionally publish the stream. |
+| POST | `/streams/{stream_id}/sessions` | Public | Verify the pay-per-view settlement transaction, then create a playable session; missing payment returns `402`. |
 | GET | `/sessions/{session_id}` | Session ID | Read session usage and settlement state. |
 | POST | `/sessions/{session_id}/playback-token` | Session ID | Issue a playback token for a playable session. |
 | POST | `/sessions/{session_id}/heartbeat` | Session ID | Update metered playback usage. |
@@ -47,6 +49,34 @@ After applying migrations, run `uv run python src/subgate_api/seed.py` from
 Session control currently uses the high-entropy session ID as a capability.
 Avoid exposing session IDs in logs or public analytics; viewer wallet-signature
 authorization for these operations is a future hardening step.
+
+### Arbitrum Sepolia pay-per-view flow
+
+Set `SUBGATE_SETTLEMENT_MODE=arbitrum` and configure `ARBITRUM_RPC_URL`,
+`ARBITRUM_CHAIN_ID=421614`, `USDC_ADDRESS`,
+`SUBGATE_STREAM_REGISTRY_ADDRESS`, and `SUBGATE_RECEIPTS_ADDRESS`. A creator
+creates a stream, signs `registerStream` from their connected wallet, then posts
+the transaction hash to `/creator/streams/{stream_id}/chain-registration`.
+The API checks the transaction sender and the emitted stream ID, price, and
+preview before making it public.
+
+For a viewer session, the wallet first approves the receipt contract for the
+exact USDC price, then calls
+`settlePayPerView(session_id, stream_id, expected_amount_atomic)`. The contract
+reverts if the registered price no longer matches the amount the viewer
+approved. That single settlement transaction transfers the registered price to
+the creator and emits the Subgate receipt with zero watch time (the purchase
+precedes playback).
+The web app posts `viewer_wallet`, `session_id`, and
+`settlement_tx_hash` to `/streams/{stream_id}/sessions`. FastAPI verifies the
+Arbitrum Sepolia chain, receipt-contract event, viewer, stream, amount, USDC
+token, and matching USDC transfer before it creates a session or playback token.
+The payment transaction hash is also returned by the receipt endpoint for an
+explorer link.
+
+The mode defaults to `arbitrum`; `local` is an explicit test/demo simulation
+only and must not be used to claim an on-chain payment. `metered` settlement is
+not enabled on Arbitrum yet, so the live demo should use pay-per-view streams.
 
 ## Creator workspace
 
@@ -156,7 +186,7 @@ uv run python src/subgate_api/seed.py
 - `404 Not Found`: requested resource does not exist or is not owned by the caller.
 - `409 Conflict`: duplicate data or an invalid state transition.
 - `422 Unprocessable Entity`: request validation failed.
-- `402 Payment Required`: x402 payment is required; the response includes the payment requirement.
+- `402 Payment Required`: pay-per-view settlement is required; the response includes the configured chain and token details.
 
 Errors are returned as JSON, usually with a `detail` field. FastAPI’s generated
 OpenAPI document at `/openapi.json` is the canonical source for field-level

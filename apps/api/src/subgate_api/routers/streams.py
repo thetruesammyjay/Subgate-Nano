@@ -1,5 +1,5 @@
 from datetime import UTC, datetime
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import os
 
@@ -16,6 +16,7 @@ from subgate_api.schemas import (
     CreateStreamRequest,
     HeartbeatRequest,
     PlaybackTokenResponse,
+    RegisterStreamOnchainRequest,
     ReceiptResponse,
     SessionResponse,
     StartSessionRequest,
@@ -33,6 +34,17 @@ from subgate_api.services.settlement import (
 from subgate_api.services.playback import issue_token, parse_token, token_hash
 from subgate_api.services.auth import normalize_wallet
 from subgate_api.services.streaming import billable_seconds, metered_amount, now_utc
+from subgate_api.services.arbitrum import (
+    ArbitrumConfigurationError,
+    ArbitrumRpcError,
+    ArbitrumVerificationError,
+    chain_readiness,
+    chain_id as configured_chain_id,
+    public_chain_config,
+    stream_id_bytes32,
+    verify_pay_per_view_settlement,
+    verify_stream_registration,
+)
 
 router = APIRouter(tags=["streams"])
 settlement_gateway = LocalSettlementGateway()
@@ -41,7 +53,29 @@ STOP_GRACE_SECONDS = 5
 
 
 def settlement_mode() -> str:
-    return os.getenv("SUBGATE_SETTLEMENT_MODE", "local").strip().lower()
+    return os.getenv("SUBGATE_SETTLEMENT_MODE", "arbitrum").strip().lower()
+
+
+def required_arbitrum_config() -> dict[str, object]:
+    try:
+        config = public_chain_config(required=True)
+    except ArbitrumConfigurationError as error:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(error)) from error
+    assert config is not None
+    return config
+
+
+@router.get("/chain/status", response_model=None)
+async def get_chain_status() -> dict[str, object] | JSONResponse:
+    mode = settlement_mode()
+    if mode == "local":
+        return {"ready": False, "mode": "local", "message": "Local simulation is enabled; payments are not real or on-chain."}
+    if mode != "arbitrum":
+        return JSONResponse(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, content={"ready": False, "mode": mode, "message": "No supported settlement adapter is enabled."})
+    try:
+        return await chain_readiness()
+    except (ArbitrumConfigurationError, ArbitrumRpcError, ArbitrumVerificationError) as error:
+        return JSONResponse(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, content={"ready": False, "mode": mode, "message": str(error)})
 
 
 def payment_requirement(
@@ -109,11 +143,14 @@ def stream_response(stream: Stream) -> StreamResponse:
         free_preview_seconds=stream.free_preview_seconds,
         playback_url=stream.playback_url,
         is_published=stream.is_published,
+        chain=public_chain_config() if settlement_mode() == "arbitrum" else None,
+        chain_stream_id=stream.chain_stream_id,
+        registry_transaction_hash=stream.registry_tx_hash,
         created_at=stream.created_at,
     )
 
 
-def session_response(session: ViewingSession) -> SessionResponse:
+def session_response(session: ViewingSession, settlement_tx_hash: str | None = None) -> SessionResponse:
     return SessionResponse(
         id=session.id,
         stream_id=session.stream_id,
@@ -126,6 +163,7 @@ def session_response(session: ViewingSession) -> SessionResponse:
         started_at=session.started_at,
         last_heartbeat_at=session.last_heartbeat_at,
         ended_at=session.ended_at,
+        settlement_tx_hash=settlement_tx_hash,
     )
 
 
@@ -136,6 +174,8 @@ async def load_stream(session: AsyncSession, stream_id: UUID) -> Stream:
     stream = result.scalar_one_or_none()
     if stream is None or not stream.is_published:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Stream not found")
+    if settlement_mode() == "arbitrum" and (stream.chain_id != configured_chain_id() or not stream.registry_tx_hash):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Stream is not available on the configured Arbitrum chain")
     return stream
 
 
@@ -185,10 +225,13 @@ async def settle_metered_session(
 
 @router.get("/streams", response_model=list[StreamResponse])
 async def list_streams(session: AsyncSession = Depends(get_session)) -> list[StreamResponse]:
+    conditions = [Stream.is_published.is_(True)]
+    if settlement_mode() == "arbitrum":
+        conditions.extend([Stream.chain_id == configured_chain_id(), Stream.registry_tx_hash.is_not(None)])
     result = await session.execute(
         select(Stream)
         .options(selectinload(Stream.creator))
-        .where(Stream.is_published.is_(True))
+        .where(*conditions)
         .order_by(Stream.created_at.desc())
     )
     return [stream_response(stream) for stream in result.scalars()]
@@ -196,8 +239,11 @@ async def list_streams(session: AsyncSession = Depends(get_session)) -> list[Str
 
 @router.get("/streams/{slug}", response_model=StreamResponse)
 async def get_stream(slug: str, session: AsyncSession = Depends(get_session)) -> StreamResponse:
+    conditions = [Stream.slug == slug, Stream.is_published.is_(True)]
+    if settlement_mode() == "arbitrum":
+        conditions.extend([Stream.chain_id == configured_chain_id(), Stream.registry_tx_hash.is_not(None)])
     result = await session.execute(
-        select(Stream).options(selectinload(Stream.creator)).where(Stream.slug == slug, Stream.is_published.is_(True))
+        select(Stream).options(selectinload(Stream.creator)).where(*conditions)
     )
     stream = result.scalar_one_or_none()
     if stream is None:
@@ -211,14 +257,31 @@ async def get_payment_requirement(
     request: Request,
     session: AsyncSession = Depends(get_session),
 ) -> dict[str, object]:
-    result = await session.execute(
-        select(Stream).options(selectinload(Stream.creator)).where(Stream.slug == slug, Stream.is_published.is_(True))
-    )
+    conditions = [Stream.slug == slug, Stream.is_published.is_(True)]
+    if settlement_mode() == "arbitrum":
+        conditions.extend([Stream.chain_id == configured_chain_id(), Stream.registry_tx_hash.is_not(None)])
+    result = await session.execute(select(Stream).options(selectinload(Stream.creator)).where(*conditions))
     stream = result.scalar_one_or_none()
     if stream is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Stream not found")
     if stream.pricing_model != "pay_per_view" or stream.price_atomic is None:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Only pay-per-view streams have an upfront payment requirement")
+
+    if settlement_mode() == "arbitrum":
+        chain = required_arbitrum_config()
+        return {
+            "chain": chain,
+            "payment_required": {
+                "chain_id": chain["chain_id"],
+                "network": chain["network"],
+                "payment_token_address": chain["payment_token_address"],
+                "receipts_contract_address": chain["receipts_contract_address"],
+                "stream_id": stream.chain_stream_id or stream_id_bytes32(stream.id),
+                "creator_wallet": stream.creator.wallet_address,
+                "amount_atomic": stream.price_atomic,
+                "amount_usdc": f"{stream.price_atomic / 1_000_000:.6f}",
+            },
+        }
 
     requirement = payment_requirement(request, stream, stream.price_atomic)
     return {
@@ -268,7 +331,11 @@ async def create_stream(
     if existing is not None:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="A stream already uses this slug")
 
+    stream_id = uuid4()
+    is_arbitrum = settlement_mode() == "arbitrum"
+    chain = required_arbitrum_config() if is_arbitrum else None
     stream = Stream(
+        id=stream_id,
         creator_id=creator.id,
         slug=payload.slug,
         title=payload.title,
@@ -279,9 +346,56 @@ async def create_stream(
         rate_atomic_per_minute=payload.pricing.rate_atomic_per_minute,
         free_preview_seconds=payload.free_preview_seconds,
         playback_url=str(payload.playback_url),
-        is_published=payload.is_published,
+        # Do not expose a paid stream until its registry transaction has been verified.
+        is_published=False if is_arbitrum else payload.is_published,
+        chain_id=int(chain["chain_id"]) if chain else None,
+        chain_stream_id=stream_id_bytes32(stream_id) if chain else None,
     )
     session.add(stream)
+    await session.commit()
+    await session.refresh(stream, attribute_names=["creator"])
+    return stream_response(stream)
+
+
+@router.post("/creator/streams/{stream_id}/chain-registration", response_model=StreamResponse)
+async def confirm_stream_registration(
+    stream_id: UUID,
+    payload: RegisterStreamOnchainRequest,
+    creator: Creator = Depends(get_current_creator),
+    session: AsyncSession = Depends(get_session),
+) -> StreamResponse:
+    if settlement_mode() != "arbitrum":
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Arbitrum registration is not enabled")
+    stream = await load_creator_stream(session, creator, stream_id)
+    if stream.chain_stream_id is None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="This stream has no Arbitrum stream ID")
+    if stream.registry_tx_hash:
+        if stream.registry_tx_hash.lower() == payload.transaction_hash.lower():
+            return stream_response(stream)
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="A registry transaction is already linked to this stream")
+
+    amount_atomic = stream.price_atomic if stream.pricing_model == "pay_per_view" else stream.rate_atomic_per_minute
+    if amount_atomic is None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="The stream has no valid price to register")
+    try:
+        await verify_stream_registration(
+            payload.transaction_hash,
+            expected_stream_id=stream.chain_stream_id,
+            expected_creator=creator.wallet_address or "",
+            expected_pricing_model=stream.pricing_model,
+            expected_price_atomic=amount_atomic,
+            expected_preview_seconds=stream.free_preview_seconds,
+        )
+    except ArbitrumConfigurationError as error:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(error)) from error
+    except ArbitrumRpcError as error:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(error)) from error
+    except ArbitrumVerificationError as error:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(error)) from error
+
+    stream.chain_id = configured_chain_id()
+    stream.registry_tx_hash = payload.transaction_hash.lower()
+    stream.is_published = payload.publish and creator.approval_status == "approved"
     await session.commit()
     await session.refresh(stream, attribute_names=["creator"])
     return stream_response(stream)
@@ -296,6 +410,17 @@ async def update_creator_stream(
 ) -> StreamResponse:
     stream = await load_creator_stream(session, creator, stream_id)
     updates = payload.model_dump(exclude_unset=True)
+
+    if settlement_mode() == "arbitrum" and stream.registry_tx_hash and (
+        payload.pricing is not None or payload.free_preview_seconds is not None
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Pricing is registered on-chain. Update the on-chain stream price before changing API pricing.",
+        )
+
+    if settlement_mode() == "arbitrum" and updates.get("is_published") is True and not stream.registry_tx_hash:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Register this stream on Arbitrum before publishing it")
 
     if updates.get("is_published") is True and creator.approval_status != "approved":
         raise HTTPException(
@@ -342,13 +467,114 @@ async def start_session(
     session: AsyncSession = Depends(get_session),
 ) -> SessionResponse | JSONResponse:
     stream = await load_stream(session, stream_id)
+    mode = settlement_mode()
+    if mode == "arbitrum" and stream.pricing_model != "pay_per_view":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Arbitrum settlement currently supports pay-per-view streams only.",
+        )
     if stream.pricing_model == "pay_per_view":
         assert stream.price_atomic is not None
         if payload.max_spend_atomic is not None and payload.max_spend_atomic < stream.price_atomic:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Maximum spend is below the pay-per-view price")
 
     circle_result: SettlementResult | None = None
-    if stream.pricing_model == "pay_per_view" and settlement_mode() == "circle":
+    if stream.pricing_model == "pay_per_view" and mode == "arbitrum":
+        if not stream.chain_stream_id or not stream.registry_tx_hash:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="This stream is not registered on Arbitrum")
+        if not payload.session_id or not payload.settlement_tx_hash:
+            chain = required_arbitrum_config()
+            return JSONResponse(
+                status_code=status.HTTP_402_PAYMENT_REQUIRED,
+                content={
+                    "message": "Pay the listed USDC price on Arbitrum Sepolia before playback can start.",
+                    "payment_required": {
+                        "chain": chain,
+                        "stream_id": stream.chain_stream_id,
+                        "creator_wallet": stream.creator.wallet_address,
+                        "amount_atomic": stream.price_atomic,
+                        "session_id_required": True,
+                    },
+                },
+            )
+        try:
+            viewer_wallet = normalize_wallet(payload.viewer_wallet)
+        except ValueError as error:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(error)) from error
+        existing_session = await session.scalar(
+            select(ViewingSession).where(ViewingSession.id == payload.session_id)
+        )
+        if existing_session is not None:
+            existing_payment = await session.scalar(
+                select(Payment).where(Payment.session_id == payload.session_id)
+            )
+            if (
+                existing_payment is None
+                or existing_payment.receipt_tx_hash != payload.settlement_tx_hash.lower()
+                or existing_session.stream_id != stream.id
+                or existing_session.viewer_wallet.lower() != viewer_wallet
+                or existing_session.status != "completed"
+            ):
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="That viewing session ID has already been used")
+            playback = await create_playback_token(session, existing_session, stream)
+            return session_response(existing_session, payload.settlement_tx_hash.lower()).model_copy(
+                update={"playback_token": playback.token, "playback_url": playback.playback_url}
+            )
+        duplicate_payment = await session.scalar(
+            select(Payment.id).where(Payment.receipt_tx_hash == payload.settlement_tx_hash.lower())
+        )
+        if duplicate_payment is not None:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="This settlement transaction has already been used")
+        try:
+            await verify_pay_per_view_settlement(
+                payload.settlement_tx_hash,
+                expected_session_id=payload.session_id,
+                expected_stream_id=stream.chain_stream_id,
+                expected_viewer=viewer_wallet,
+                expected_creator=stream.creator.wallet_address,
+                expected_amount_atomic=stream.price_atomic or 0,
+            )
+        except ArbitrumConfigurationError as error:
+            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(error)) from error
+        except ArbitrumRpcError as error:
+            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(error)) from error
+        except ArbitrumVerificationError as error:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(error)) from error
+
+        settled_at = now_utc()
+        viewing_session = ViewingSession(
+            id=payload.session_id,
+            stream_id=stream.id,
+            viewer_wallet=viewer_wallet,
+            status="completed",
+            max_spend_atomic=stream.price_atomic,
+            accrued_atomic=stream.price_atomic or 0,
+            settled_atomic=stream.price_atomic or 0,
+            started_at=settled_at,
+            last_heartbeat_at=settled_at,
+            ended_at=settled_at,
+        )
+        session.add(viewing_session)
+        session.add(
+            Payment(
+                session_id=payload.session_id,
+                amount_atomic=stream.price_atomic or 0,
+                transaction_reference=payload.settlement_tx_hash.lower(),
+                chain_id=configured_chain_id(),
+                receipt_tx_hash=payload.settlement_tx_hash.lower(),
+            )
+        )
+        await session.commit()
+        await session.refresh(viewing_session)
+        playback = await create_playback_token(session, viewing_session, stream)
+        return session_response(viewing_session, payload.settlement_tx_hash.lower()).model_copy(
+            update={"playback_token": playback.token, "playback_url": playback.playback_url}
+        )
+
+    if stream.pricing_model == "metered" and mode not in {"local", "circle"}:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="No metered settlement adapter is configured")
+
+    if stream.pricing_model == "pay_per_view" and mode == "circle":
         assert stream.price_atomic is not None
         requirement = payment_requirement(request, stream, stream.price_atomic)
         signature = payload.payment_signature or request.headers.get("PAYMENT-SIGNATURE")
@@ -483,6 +709,8 @@ async def stop_session(
     stream = await load_stream(session, viewing_session.stream_id)
     if stream.pricing_model != "metered" or stream.rate_atomic_per_minute is None:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="This viewing session cannot be settled")
+    if settlement_mode() not in {"local", "circle"}:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="No metered settlement adapter is configured")
 
     ended_at = now_utc()
     elapsed = billable_seconds(viewing_session.last_heartbeat_at, ended_at, STOP_GRACE_SECONDS)
@@ -533,6 +761,8 @@ async def get_receipt(session_id: UUID, session: AsyncSession = Depends(get_sess
         duration_seconds=viewing_session.consumed_seconds,
         amount_atomic=payment.amount_atomic,
         transaction_reference=payment.transaction_reference,
+        chain_id=payment.chain_id,
+        receipt_tx_hash=payment.receipt_tx_hash,
         settled_at=payment.settled_at,
     )
 

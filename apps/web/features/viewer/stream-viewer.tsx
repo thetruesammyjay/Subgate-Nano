@@ -6,6 +6,7 @@ import { ArrowLeft, Check, CircleDollarSign, Clock3, LockKeyhole, Play, RadioTow
 import type { Stream } from "../../types/stream";
 import type { ViewingSession } from "../../types/session";
 import { connectWallet, shortenAddress } from "../../lib/wallet";
+import { ChainTransactionFailedError, explorerTransactionUrl, settlePayPerViewOnArbitrum } from "../../lib/arbitrum";
 
 const formatUsdc = (atomic: number) => `${(atomic / 1_000_000).toFixed(4)} USDC`;
 const apiUrl = () => (process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000").replace(/\/$/, "");
@@ -14,7 +15,7 @@ export function StreamViewer({ stream }: { stream: Stream }) {
   const [wallet, setWallet] = useState("");
   const [session, setSession] = useState<ViewingSession | null>(null);
   const [maxSpend, setMaxSpend] = useState("0.50");
-  const [paymentSignature, setPaymentSignature] = useState("");
+  const [pendingSettlement, setPendingSettlement] = useState<{ sessionId: string; viewerWallet: string; txHash: string } | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const pricingLabel = useMemo(() => stream.pricing.model === "pay_per_view" ? `${formatUsdc(stream.pricing.price_atomic ?? 0)} once` : `${formatUsdc(stream.pricing.rate_atomic_per_minute ?? 0)} per minute`, [stream]);
@@ -26,7 +27,29 @@ export function StreamViewer({ stream }: { stream: Stream }) {
     try {
       const connected = wallet || (await connectWallet());
       setWallet(connected);
-      const response = await fetch(`/api/streams/${stream.slug}/sessions`, { method: "POST", headers: paymentSignature ? { "PAYMENT-SIGNATURE": paymentSignature } : { "content-type": "application/json" }, body: JSON.stringify({ viewer_wallet: connected, max_spend_atomic: stream.pricing.model === "metered" ? Math.round(Number(maxSpend) * 1_000_000) : undefined, payment_signature: paymentSignature || undefined }) });
+      let body: Record<string, unknown> = {
+        viewer_wallet: connected,
+        max_spend_atomic: stream.pricing.model === "metered" ? Math.round(Number(maxSpend) * 1_000_000) : undefined,
+      };
+      if (stream.pricing.model === "pay_per_view") {
+        if (!stream.chain || !stream.chain_stream_id || !stream.registry_transaction_hash) {
+          throw new Error("This stream is not configured for a verified Arbitrum Sepolia payment yet.");
+        }
+        const amountAtomic = stream.pricing.price_atomic;
+        if (!amountAtomic) throw new Error("This stream has no payable price configured.");
+        let pendingPayment = pendingSettlement;
+        if (!pendingPayment) {
+          const payment = await settlePayPerViewOnArbitrum(stream.chain, stream.chain_stream_id, amountAtomic, setPendingSettlement);
+          pendingPayment = { sessionId: payment.sessionId, viewerWallet: payment.viewerWallet, txHash: payment.settlementTxHash };
+          setPendingSettlement(pendingPayment);
+        }
+        body = {
+          viewer_wallet: pendingPayment.viewerWallet,
+          session_id: pendingPayment.sessionId,
+          settlement_tx_hash: pendingPayment.txHash,
+        };
+      }
+      const response = await fetch(`/api/streams/${stream.slug}/sessions`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
       const payload = await response.json().catch(() => null);
       if (response.status === 402) {
         const requirement = payload?.payment_required;
@@ -34,7 +57,9 @@ export function StreamViewer({ stream }: { stream: Stream }) {
       }
       if (!response.ok) throw new Error(payload?.detail ?? payload?.message ?? "Unable to start this viewing session.");
       setSession(payload as ViewingSession);
+      setPendingSettlement(null);
     } catch (error) {
+      if (error instanceof ChainTransactionFailedError) setPendingSettlement(null);
       setMessage(error instanceof Error ? error.message : "Unable to start playback.");
     } finally {
       setPending(false);
@@ -44,7 +69,7 @@ export function StreamViewer({ stream }: { stream: Stream }) {
   const stopWatching = async () => {
     if (!session) return;
     setPending(true);
-    const response = await fetch(`/api/sessions/${session.id}/stop`, { method: "POST", headers: paymentSignature ? { "PAYMENT-SIGNATURE": paymentSignature } : {}, body: JSON.stringify({ payment_signature: paymentSignature || undefined }) });
+    const response = await fetch(`/api/sessions/${session.id}/stop`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({}) });
     const payload = await response.json().catch(() => null);
     if (response.ok) setSession(payload as ViewingSession);
     else setMessage(payload?.message ?? "Unable to stop this session.");
@@ -62,14 +87,14 @@ export function StreamViewer({ stream }: { stream: Stream }) {
         </div>
         <aside className="stream-access-panel">
           <div className="access-panel-top"><span className="icon-square"><LockKeyhole size={17} /></span><span className="utility-label">Access panel</span></div>
-          <div className="price-block"><span>{stream.pricing.model === "metered" ? "Watching costs" : "One access costs"}</span><strong>{pricingLabel}</strong><small>USDC on the configured network</small></div>
+          <div className="price-block"><span>{stream.pricing.model === "metered" ? "Watching costs" : "One access costs"}</span><strong>{pricingLabel}</strong><small>{stream.pricing.model === "pay_per_view" && stream.chain ? `${stream.chain.network} · approve, then settle in your wallet` : stream.pricing.model === "metered" ? "Metered Arbitrum settlement is not enabled yet" : "Arbitrum settlement is not configured"}</small></div>
           {wallet ? <div className="connected-wallet"><Check size={15} /><span>{shortenAddress(wallet)}</span><span>ready</span></div> : null}
           {stream.pricing.model === "metered" ? <label className="field-label"><span>Maximum spend (USDC)</span><input type="number" min="0.000001" step="0.000001" value={maxSpend} onChange={(event) => setMaxSpend(event.target.value)} /></label> : null}
-          <label className="field-label"><span>Payment signature <em>only when requested</em></span><textarea rows={3} value={paymentSignature} onChange={(event) => setPaymentSignature(event.target.value)} placeholder="Paste an x402 signature if your wallet adapter returns one" /></label>
-          <button className="button primary button-wide" type="button" onClick={startWatching} disabled={pending || session?.status === "active"}><WalletCards size={16} /> {pending ? "Preparing..." : session?.status === "active" ? "Session is live" : "Start watching"}</button>
+          <button className="button primary button-wide" type="button" onClick={startWatching} disabled={pending || session?.status === "active" || (stream.pricing.model === "pay_per_view" && Boolean(session?.playback_url))}><WalletCards size={16} /> {pending ? "Preparing..." : pendingSettlement ? "Retry payment verification" : session?.status === "active" ? "Session is live" : session?.playback_url ? "Access unlocked" : stream.pricing.model === "pay_per_view" ? "Pay & start watching" : "Start watching"}</button>
+          {pendingSettlement && stream.chain ? <p className="form-message">Payment confirmed in your wallet. If verification is temporarily unavailable, retry using the same transaction: <a href={explorerTransactionUrl(stream.chain, pendingSettlement.txHash)} target="_blank" rel="noreferrer">view on Arbiscan</a></p> : null}
           {session?.status === "active" ? <button className="button secondary button-wide" type="button" onClick={stopWatching} disabled={pending}>Stop and settle</button> : null}
           {message ? <p className="form-message error-message">{message}</p> : null}
-          {session?.status === "completed" ? <div className="receipt-mini"><Check size={17} /><div><strong>Session settled</strong><span>{formatUsdc(session.settled_atomic)} · {session.consumed_seconds}s watched</span></div></div> : null}
+          {session?.status === "completed" ? <div className="receipt-mini"><Check size={17} /><div><strong>Session settled</strong><span>{formatUsdc(session.settled_atomic)} · {session.consumed_seconds}s watched</span>{session.settlement_tx_hash && stream.chain ? <a href={explorerTransactionUrl(stream.chain, session.settlement_tx_hash)} target="_blank" rel="noreferrer">View verified payment and receipt ↗</a> : null}</div></div> : null}
           <div className="access-notes"><span><ShieldCheck size={15} /> Wallet signature, no subscription</span><span><CircleDollarSign size={15} /> Receipt after settlement</span><span><Clock3 size={15} /> Preview: {stream.free_preview_seconds || 0}s</span></div>
         </aside>
       </div>

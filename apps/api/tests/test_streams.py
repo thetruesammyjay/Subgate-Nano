@@ -1,7 +1,9 @@
 from datetime import UTC, datetime, timedelta
-from unittest.mock import patch
+from uuid import uuid4
+from unittest.mock import AsyncMock, patch
 
 from fastapi.testclient import TestClient
+import subgate_api.routers.streams as streams_router
 
 
 def create_stream(
@@ -178,6 +180,98 @@ def test_circle_mode_requires_payment_signature_to_stop_metered(client: TestClie
     stopped = client.post(f"/sessions/{session.json()['id']}/stop")
     assert stopped.status_code == 402
     assert "PAYMENT-REQUIRED" in stopped.headers
+
+
+def test_arbitrum_stream_is_not_public_until_registration_is_verified(
+    client: TestClient,
+    creator_headers: dict[str, str],
+    monkeypatch,
+) -> None:
+    chain = {
+        "chain_id": 421614,
+        "network": "Arbitrum Sepolia",
+        "payment_token_address": "0x1111111111111111111111111111111111111111",
+        "registry_contract_address": "0x2222222222222222222222222222222222222222",
+        "receipts_contract_address": "0x3333333333333333333333333333333333333333",
+        "explorer_base_url": "https://sepolia.arbiscan.io",
+    }
+    monkeypatch.setenv("SUBGATE_SETTLEMENT_MODE", "arbitrum")
+    monkeypatch.setattr(streams_router, "public_chain_config", lambda required=False: chain)
+    monkeypatch.setattr(streams_router, "stream_id_bytes32", lambda _: "0x" + "12" * 32)
+    monkeypatch.setattr(streams_router, "verify_stream_registration", AsyncMock(return_value=None))
+
+    stream = create_stream(client, {"model": "pay_per_view", "price_atomic": 1_500_000}, creator_headers)
+    assert stream["is_published"] is False
+    assert stream["chain_stream_id"] == "0x" + "12" * 32
+    assert client.get(f"/streams/{stream['slug']}").status_code == 404
+
+    registration = client.post(
+        f"/creator/streams/{stream['id']}/chain-registration",
+        headers=creator_headers,
+        json={"transaction_hash": "0x" + "ab" * 32, "publish": True},
+    )
+    assert registration.status_code == 200, registration.text
+    assert registration.json()["is_published"] is True
+    assert registration.json()["registry_transaction_hash"] == "0x" + "ab" * 32
+
+
+def test_arbitrum_pay_per_view_requires_verified_transaction_before_playback(
+    client: TestClient,
+    creator_headers: dict[str, str],
+    monkeypatch,
+) -> None:
+    chain = {
+        "chain_id": 421614,
+        "network": "Arbitrum Sepolia",
+        "payment_token_address": "0x1111111111111111111111111111111111111111",
+        "registry_contract_address": "0x2222222222222222222222222222222222222222",
+        "receipts_contract_address": "0x3333333333333333333333333333333333333333",
+        "explorer_base_url": "https://sepolia.arbiscan.io",
+    }
+    monkeypatch.setenv("SUBGATE_SETTLEMENT_MODE", "arbitrum")
+    monkeypatch.setattr(streams_router, "public_chain_config", lambda required=False: chain)
+    monkeypatch.setattr(streams_router, "stream_id_bytes32", lambda _: "0x" + "12" * 32)
+    monkeypatch.setattr(streams_router, "verify_stream_registration", AsyncMock(return_value=None))
+    monkeypatch.setattr(streams_router, "verify_pay_per_view_settlement", AsyncMock(return_value=None))
+
+    stream = create_stream(client, {"model": "pay_per_view", "price_atomic": 1_500_000}, creator_headers)
+    registered = client.post(
+        f"/creator/streams/{stream['id']}/chain-registration",
+        headers=creator_headers,
+        json={"transaction_hash": "0x" + "ab" * 32, "publish": True},
+    )
+    assert registered.status_code == 200, registered.text
+
+    session_id = uuid4()
+    payment_hash = "0x" + "cd" * 32
+    response = client.post(
+        f"/streams/{stream['id']}/sessions",
+        json={
+            "viewer_wallet": "0x2222222222222222222222222222222222222222",
+            "session_id": str(session_id),
+            "settlement_tx_hash": payment_hash,
+        },
+    )
+    assert response.status_code == 201, response.text
+    assert response.json()["status"] == "completed"
+    assert response.json()["settlement_tx_hash"] == payment_hash
+    assert response.json()["playback_token"]
+
+    retried = client.post(
+        f"/streams/{stream['id']}/sessions",
+        json={
+            "viewer_wallet": "0x2222222222222222222222222222222222222222",
+            "session_id": str(session_id),
+            "settlement_tx_hash": payment_hash,
+        },
+    )
+    assert retried.status_code == 201, retried.text
+    assert retried.json()["id"] == str(session_id)
+
+    receipt = client.get(f"/sessions/{session_id}/receipt")
+    assert receipt.status_code == 200
+    assert receipt.json()["receipt_tx_hash"] == payment_hash
+    assert receipt.json()["chain_id"] == 421614
 
 
 def test_heartbeat_uses_server_time_not_client_position(client: TestClient, creator_headers: dict[str, str]) -> None:

@@ -280,6 +280,8 @@ async def update_stream_visibility(
         creator = await session.get(Creator, stream.creator_id)
         if creator is None or creator.approval_status != "approved":
             raise HTTPException(status_code=409, detail="Only approved creators can publish streams")
+        if os.getenv("SUBGATE_SETTLEMENT_MODE", "arbitrum").strip().lower() == "arbitrum" and not stream.registry_tx_hash:
+            raise HTTPException(status_code=409, detail="Register the stream on Arbitrum before publishing it")
     previous = stream.is_published
     stream.is_published = payload.is_published
     await write_audit_event(
